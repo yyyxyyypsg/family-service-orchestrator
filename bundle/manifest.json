@@ -1,0 +1,12 @@
+{
+  "capabilities": [
+    "storage"
+  ],
+  "id": "dev.aster.fso",
+  "integrity": {
+    "bundle_blake3": "0286f67b42c6782fec67e27037dbfb023bb82a33a897319baf1df9763cd0a5e5"
+  },
+  "name": "家庭服务事件编排器",
+  "schema": 1,
+  "version": "0.1.0"
+}

@@ -1,0 +1,203 @@
+// 家庭服务事件编排器 — dev.aster.fso
+// 阶段一：17 状态 / 22 事件状态机（移植自 domain.js）+ 调试 UI
+// 布局约定：颜色一律 #x 前缀；布尔用 and/or；数字转字符串用 "" + n
+
+// ---------- 状态机（T1：与 domain.js transition 逐行对应） ----------
+
+let machine = {state: "Idle" replan: 0}
+let log = []
+
+fn pad2(n) {
+    if n < 10 { return "0" + n }
+    return "" + n
+}
+
+fn now_hhmm() {
+    let t = local_time()
+    return pad2(t.hour) + ":" + pad2(t.minute)
+}
+
+// 返回 {valid: bool state: str replan: num}；valid=false 表示非法转移
+fn transition(st, ev, rc) {
+    if st == "Idle" and ev == "paste_notice" { return {valid: true state: "Parsing" replan: rc} }
+    if st == "Parsing" and ev == "need_info" { return {valid: true state: "NeedInfo" replan: rc} }
+    if st == "NeedInfo" and ev == "parsed" { return {valid: true state: "Parsing" replan: rc} }
+    if st == "NeedInfo" and ev == "parse_failed" { return {valid: true state: "ParseFailed" replan: rc} }
+    if st == "NeedInfo" and ev == "user_rejected" { return {valid: true state: "Idle" replan: rc} }
+    if st == "Parsing" and ev == "parse_failed" { return {valid: true state: "ParseFailed" replan: rc} }
+    if st == "ParseFailed" and ev == "paste_notice" { return {valid: true state: "Parsing" replan: rc} }
+    if st == "Parsing" and ev == "parsed" { return {valid: true state: "Assessed" replan: rc} }
+    if st == "Assessed" and ev == "conflict_found" { return {valid: true state: "Conflict" replan: rc} }
+    if st == "Assessed" and ev == "plan_ready" { return {valid: true state: "AwaitingConfirm" replan: rc} }
+    if st == "Conflict" and ev == "plan_ready" { return {valid: true state: "AwaitingConfirm" replan: rc} }
+    if st == "AwaitingConfirm" and ev == "user_rejected" { return {valid: true state: "Idle" replan: rc} }
+    if st == "AwaitingConfirm" and ev == "user_confirmed" { return {valid: true state: "Executing" replan: rc} }
+    if st == "Executing" and ev == "all_actions_succeeded" { return {valid: true state: "Verify" replan: rc} }
+    if st == "Executing" and ev == "partial_actions_succeeded" { return {valid: true state: "Partial" replan: rc} }
+    if st == "Executing" and ev == "all_actions_failed" { return {valid: true state: "Failed" replan: rc} }
+    if st == "Partial" and ev == "plan_ready" { return {valid: true state: "AwaitingConfirm" replan: rc} }
+    if st == "Partial" and ev == "fallback_ready" { return {valid: true state: "Fallback" replan: rc} }
+    if st == "Failed" and ev == "fallback_ready" { return {valid: true state: "Fallback" replan: rc} }
+    if (st == "Failed" or st == "Fallback" or st == "Partial") and ev == "user_rejected" { return {valid: true state: "Idle" replan: rc} }
+    if st == "Failed" and ev == "user_confirmed" { return {valid: true state: "Executing" replan: rc} }
+    if st == "Fallback" and ev == "plan_ready" { return {valid: true state: "AwaitingConfirm" replan: rc} }
+    if st == "Verify" and ev == "verify_ok" { return {valid: true state: "Following" replan: rc} }
+    if st == "Verify" and ev == "state_changed" {
+        if rc >= 3 { return {valid: true state: "Unstable" replan: rc + 1} }
+        return {valid: true state: "Replan" replan: rc + 1}
+    }
+    if st == "Replan" and ev == "replan_ready" { return {valid: true state: "AwaitingConfirm" replan: rc} }
+    if st == "Replan" and ev == "replan_conflict" {
+        if rc < 2 { return {valid: true state: "Replan" replan: rc + 1} }
+        return {valid: true state: "Unstable" replan: rc + 1}
+    }
+    if st == "Replan" and ev == "manual_plan" { return {valid: true state: "AwaitingConfirm" replan: 0} }
+    if st == "Unstable" and ev == "replan_ready" { return {valid: true state: "AwaitingConfirm" replan: rc} }
+    if st == "Unstable" and ev == "manual_plan" { return {valid: true state: "AwaitingConfirm" replan: 0} }
+    if st == "Unstable" and ev == "user_rejected" { return {valid: true state: "Idle" replan: rc} }
+    if st == "Following" and ev == "new_event" {
+        if rc >= 3 { return {valid: true state: "Unstable" replan: rc + 1} }
+        return {valid: true state: "Replan" replan: rc + 1}
+    }
+    if st == "Following" and ev == "service_done" { return {valid: true state: "Completed" replan: rc} }
+    if st == "Completed" and ev == "register_postsale" { return {valid: true state: "PostSale" replan: rc} }
+    if st == "PostSale" and ev == "postsale_handled" { return {valid: true state: "Completed" replan: rc} }
+    if st == "PostSale" and ev == "postsale_expired" { return {valid: true state: "Idle" replan: rc} }
+    return {valid: false state: st replan: rc}
+}
+
+fn state_zh(st) {
+    if st == "Idle" { return "空闲" }
+    if st == "Parsing" { return "解析中" }
+    if st == "NeedInfo" { return "待补充信息" }
+    if st == "ParseFailed" { return "解析失败" }
+    if st == "Assessed" { return "已完成评估" }
+    if st == "Conflict" { return "发现冲突" }
+    if st == "AwaitingConfirm" { return "等待确认" }
+    if st == "Executing" { return "执行中" }
+    if st == "Partial" { return "部分成功" }
+    if st == "Failed" { return "执行失败" }
+    if st == "Fallback" { return "规则兜底" }
+    if st == "Verify" { return "核验中" }
+    if st == "Replan" { return "重规划中" }
+    if st == "Unstable" { return "不稳定" }
+    if st == "Following" { return "跟进中" }
+    if st == "Completed" { return "已完成" }
+    if st == "PostSale" { return "售后复查" }
+    return st
+}
+
+fn log_prepend(s) {
+    let next = [s]
+    for i in log.len() { next.push(log[i]) }
+    log = next
+}
+
+fn refresh_badge() {
+    ui.state_badge.set_text(machine.state + " · " + state_zh(machine.state))
+    ui.replan_label.set_text("重规划计数: " + ("" + machine.replan))
+}
+
+fn fire(ev) {
+    let r = transition(machine.state, ev, machine.replan)
+    let stamp = now_hhmm()
+    if r.valid {
+        log_prepend(stamp + "  " + ev + "   " + machine.state + " → " + r.state + "  (rc=" + ("" + r.replan) + ")")
+        machine = {state: r.state replan: r.replan}
+    } else {
+        log_prepend(stamp + "  ✗ 非法转移  " + machine.state + " + " + ev)
+    }
+    refresh_badge()
+    ui.log_list.render()
+}
+
+fn reset_all() {
+    machine = {state: "Idle" replan: 0}
+    log = []
+    refresh_badge()
+    ui.log_list.render()
+}
+
+start_timeout(0.05, || refresh_badge())
+
+// ---------- 样式 ----------
+
+let Chip = ButtonFlat{height: 30 padding: Inset{left: 9 right: 9}
+    draw_bg +: {color: #x007aff color_hover: #x0a84ff color_down: #x0062cc border_radius: 15.0 border_size: 0.0}
+    draw_text +: {color: #xffffff color_hover: #xffffff color_down: #xffffff draw_text.text_style.font_size: 11}}
+
+let ink = #x1c1c1e
+let secondary = #x8e8e93
+
+// ---------- 界面 ----------
+
+SolidView{width: Fill height: Fill flow: Down padding: 16 spacing: 10 draw_bg.color: #xf7f7fa
+
+    Label{text: "家庭服务事件编排器" draw_text.color: ink draw_text.text_style: theme.font_bold{font_size: 22}}
+    Label{text: "状态机调试台 · dev.aster.fso v0.1" draw_text.color: secondary draw_text.text_style.font_size: 12}
+
+    View{width: Fill height: Fit flow: Down spacing: 6
+        View{width: Fill height: Fit flow: Right spacing: 10
+            badge := RoundedView{width: Fit height: 40 padding: Inset{left: 14 right: 14} draw_bg +: {color: #x1c1c1e border_radius: 20.0}
+                state_badge := Label{text: "Idle · 空闲" draw_text.color: #xffffff draw_text.text_style.font_size: 15}}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 10 align: Align{y: 0.5}
+            replan_label := Label{text: "重规划计数: 0" draw_text.color: ink draw_text.text_style.font_size: 13}
+            Chip{text: "重置" on_click: || reset_all()}
+        }
+    }
+
+    Label{text: "事件注入" draw_text.color: secondary draw_text.text_style.font_size: 12}
+
+    events := ScrollYView{width: Fill height: 292 flow: Down spacing: 5
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "粘贴通知" on_click: || fire("paste_notice")}
+            Chip{text: "解析成功" on_click: || fire("parsed")}
+            Chip{text: "解析失败" on_click: || fire("parse_failed")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "需补充信息" on_click: || fire("need_info")}
+            Chip{text: "发现冲突" on_click: || fire("conflict_found")}
+            Chip{text: "方案就绪" on_click: || fire("plan_ready")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "用户确认" on_click: || fire("user_confirmed")}
+            Chip{text: "用户拒绝" on_click: || fire("user_rejected")}
+            Chip{text: "核验通过" on_click: || fire("verify_ok")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "全部成功" on_click: || fire("all_actions_succeeded")}
+            Chip{text: "部分成功" on_click: || fire("partial_actions_succeeded")}
+            Chip{text: "全部失败" on_click: || fire("all_actions_failed")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "状态已变化" on_click: || fire("state_changed")}
+            Chip{text: "新事件" on_click: || fire("new_event")}
+            Chip{text: "重规划方案" on_click: || fire("replan_ready")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "重规划冲突" on_click: || fire("replan_conflict")}
+            Chip{text: "手动方案" on_click: || fire("manual_plan")}
+            Chip{text: "兜底就绪" on_click: || fire("fallback_ready")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "服务完成" on_click: || fire("service_done")}
+            Chip{text: "登记售后" on_click: || fire("register_postsale")}
+            Chip{text: "售后已处理" on_click: || fire("postsale_handled")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 6
+            Chip{text: "售后过期" on_click: || fire("postsale_expired")}
+        }
+    }
+
+    Label{text: "转移日志（新在上）" draw_text.color: secondary draw_text.text_style.font_size: 12}
+
+    log_list := ScrollYView{width: Fill height: Fill flow: Down spacing: 4 on_render: || {
+        if log.len() == 0 {
+            Label{text: "（暂无转移，点上方按钮注入事件）" draw_text.color: secondary draw_text.text_style.font_size: 12}
+        }
+        for i in log.len() {
+            Label{width: Fill text: log[i] draw_text.color: ink draw_text.text_style.font_size: 12}
+        }
+    }}
+}
