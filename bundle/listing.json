@@ -12,7 +12,7 @@
     "support": "https://github.com/yyyxyyypsg",
     "privacy_policy_url": "https://github.com/yyyxyyypsg"
   },
-  "release_notes": "0.1.0 初赛版本：17 状态机、通知解析、防编造事实卡、方案确认执行、幂等审计、失败重试。",
+  "release_notes": "0.1.1：修复 F-01 —— 配送延误事实的来源引用改为精确命中的原文片段（此前固定写作「配送延期」，与输入不符）。0.1.0：17 状态机、通知解析、防编造事实卡、方案确认执行、幂等审计、失败重试。",
   "age_rating": "all",
   "license": "Apache-2.0"
 }

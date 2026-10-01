@@ -9,10 +9,10 @@
   },
   "id": "dev.aster.fso",
   "integrity": {
-    "bundle_blake3": "b4a43e877622f9c29e131d2df6523fd1165a00155dd1d0ffe945ab81d31a8a4b",
+    "bundle_blake3": "2f7d4097d2ddf5d026a197660cecab0b15b682f72360ec540ed89139d2e08b1d",
     "signature": {
       "key_id": "yyyxyyypsg",
-      "value": "956828930e2292853134793b198adbc6152b8f73395888dc9f5e10ad93c8b5436270719e08923cc8d157dda8fd0877072859bdf5b5007490eff86f6b65371801"
+      "value": "117882fbf1ec0ffb07d80b965a22840d6d6614991c8ec8a11637a43c81514a747ac19e9d47611d9a191e78da68eef32daae211996628ab760e047434398b7f07"
     }
   },
   "name": "家庭服务事件编排器",
@@ -23,5 +23,5 @@
   "storage": {
     "max_bytes": null
   },
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

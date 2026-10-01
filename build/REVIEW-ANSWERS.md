@@ -1,7 +1,11 @@
-# REVIEW-ANSWERS — dev.aster.fso 0.1.0
+# REVIEW-ANSWERS — dev.aster.fso 0.1.1
 
-依据：`build/review.json`（2026-10-01 由 `hub scan bundle --packet build/review.json` 生成，
-对应工作树 bundle，与提交 `10bc914` 的 bundle 字节一致）。回答人为内环，外环/人可修订。
+依据：`build/review.json`（由 `hub scan` 生成，对应 0.1.1 内容）。回答人为内环，外环/人可修订。
+
+> **0.1.1 变更**：修复外环发现的 `F-01` —— 配送延误事实的 `source_quote` 原先固定写作
+> 「配送延期」，现改为写入正则实际命中的原文片段（`delay.value.trim()`）。已验证输入
+> 「配送延迟」「推迟」「配送延期」分别得到引用 `延迟`/`推迟`/`延期`，且都逐字出现在输入中。
+> 其余行为与已提交的 0.1.0 一致。
 
 ## 1. Does the app do what its name, subtitle and description claim? Cite the text in its source.
 

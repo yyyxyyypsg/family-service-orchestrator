@@ -313,8 +313,9 @@ fn parse_notice(text, sid, base_date) {
     let status = rx_capture(text, "(?:状态|进度)\\s*[:：]?\\s*([^\\n]+)", "", 1)
     if status != nil { facts.push(mk_fact("status", status.value, status.quote, sid, "high")) }
 
-    if regex("延期|延迟|推迟").test(text) {
-        facts.push(mk_fact("delivery_status", "delayed", "配送延期", sid, "high"))
+    let delay = regex("延期|延迟|推迟").exec(text)
+    if delay != nil {
+        facts.push(mk_fact("delivery_status", "delayed", delay.value.trim(), sid, "high"))
     }
 
     if facts.len() == 0 and errors.len() == 0 { errors.push("通知中没有可识别事实") }

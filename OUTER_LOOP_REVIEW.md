@@ -308,3 +308,51 @@ release_decision=keep submitted 0.1.0; queue F-01 for signed follow-up release
 **关键发现（修正此前认知）**：初赛提交渠道不是 OctoSense-App-Hub 的 `Submit` issue，而是赛事官方仓库 `gosimfoundation/hackathon-agenticapp26` 的 issue #13（"请在这里提交每支队伍的初赛仓库地址"），格式为"队伍名 + GitHub 仓库地址"。赛事文档《作品提交与 OctoSense App Hub》明确："现阶段各轮评审以公开源码仓库和可运行作品为准，**无需等待 Hub 上架**"；Hub 预检（stamp/check/scan）是本地动作。App Hub 的 Submit issue 属**商店上架**路径，非初赛必需。
 
 **另修复一处真实缺陷**：`.gitignore` 的 `*.png` 曾把 `bundle/screenshots/` 三张截图排除在版本控制外（仓库里 listing.json 引用的截图实际不存在）。已改为仅忽略 `debug-t1*.png`，截图入库；因 bundle 文件字节未变，签名仍然有效（重跑 check 确认 PASSED）。
+
+---
+
+## ACK F-01 修复 · 2026-10-01（内环）· 发布 0.1.1
+
+**验证级别：`verified`（本修复范围内；签名用公钥复验通过）**
+
+外环裁定 `F-01 (P1)` 后，内环按建议完成修复并发布签名修订版 `0.1.1`。
+
+**修复**（`bundle/main.splash`，原 316-318 行）：
+```splash
+// 之前：判断用了 test()，引用是硬编码字符串
+if regex("延期|延迟|推迟").test(text) {
+    facts.push(mk_fact("delivery_status", "delayed", "配送延期", sid, "high"))
+}
+// 现在：捕获实际命中的片段作为引用
+let delay = regex("延期|延迟|推迟").exec(text)
+if delay != nil {
+    facts.push(mk_fact("delivery_status", "delayed", delay.value.trim(), sid, "high"))
+}
+```
+
+**验证证据**（`build/f01_check.py`，远程桥驱动 + `state.json` 数据级核验）：
+
+| 输入包含 | `source_quote` | 精确等于命中片段 | 逐字出现在输入中 |
+| --- | --- | --- | --- |
+| 配送延迟 | `延迟` | ✓ | ✓ |
+| 到货推迟 | `推迟` | ✓ | ✓ |
+| （配送延期） | `延期` | ✓ | ✓ |
+
+`F-01 RESULT: FIXED`
+
+**回归**（在去签名的 0.1.1 上跑，签名在最后）：
+- R1 完整通知→解析（AwaitingConfirm）→确认（Following）✓
+- R2 重复确认拦截 ✓
+- R3 模拟提醒失败→Partial→重试→Following ✓；审计三行 `[create_reminder success, create_reminder warn, reschedule_installation success]` ✓
+- R4 重启恢复：`Following` + 3 行审计 ✓
+- 运行日志 0 个 `[E]`；`delivery_status` 事实现为 `{value: "delayed", source_quote: "延期", source_id: "pasted_notice_01", confidence: "high"}` ✓
+- 三张 listing 截图在 0.1.1 上重拍并人工查验
+
+**签名**：`hub stamp` → `sign-manifest --key-id yyyxyyypsg` → `check --publisher-key`：
+`dev.aster.fso 0.1.1 — PASSED`（无未签名警告）。审核包 `build/review.json` 已按 0.1.1 重新生成（用去签名副本生成，因 `hub scan` 对未注册发布者的已签名包会拒绝）。
+
+**说明与遗留**：
+- `0.1.0` 的签名与初赛提交（issue #13）**保持不变**，符合外环 "keep submitted 0.1.0" 的裁定；0.1.1 为后续修订版。
+- UI 标题栏的 `v0.1` 是**系列标签**（非 manifest 版本号），与演示视频（录制于 0.1.0）一致；如需显示精确版本请新开任务。
+- JS 原型 `family-service-orchestrator/src/parser.js:94` 存在**同样的硬编码**（`'配送延期'`）。该文件不在规范基线与提交物内，本次未改动，仅记录以备后续对照。
+- 待外环复验 0.1.1（公钥复验 + F-01 抽查）。
