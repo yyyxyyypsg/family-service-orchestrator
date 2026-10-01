@@ -225,3 +225,19 @@ T1 全量重放暂不接受为 `verified`。T4 的消息标签增加高度后，
 - `build/HUMAN-RUNBOOK.md`：keygen → sign-manifest → check --publisher-key → commit+tag → push → issue 模板，全部带实际路径；附初赛 8 项清单对照（视频和成员名单是仅剩的两个 ✗，均属人环）。
 
 内环不执行 keygen/sign/tag/push/issue——等人环 go。
+
+---
+
+## 内环交付记录 · 2026-10-01 · 人环指派 5 项完成
+
+| # | 事项 | 结果 |
+| --- | --- | --- |
+| 1 | 演示视频 | ✓ `build/video/demo-dev.aster.fso.mp4`，2 分 33 秒，9 帧真实捕获（card-host 远程桥逐状态）+ 字幕 + 首尾卡；153s 符合 2-3 分钟要求 |
+| 2 | 成员名单 | ⚠ 部分：`build/TEAM.md` 已建，仅 `Aster = yyyxyyypsg` 确认（与 issue #5 登记一致），其余成员待报名信息核对 |
+| 3 | 调试控制台去留 | ✓ 初赛保留，且已在 `listing.json` 描述中如实声明"正式产品版本将隐藏该区域" |
+| 4 | 签名 | ✓ keygen（密钥在 `C:\Users\lsy\octosense-keys\`，仓库外）→ sign-manifest（key-id `yyyxyyypsg`）→ check --publisher-key：**PASSED，无未签名警告** |
+| 5 | 提交 | ✓ 仓库 https://github.com/yyyxyyypsg/family-service-orchestrator （public，tag `v0.1.0` = 37a8eb3）；**官方初赛提交入口**：gosimfoundation/hackathon-agenticapp26 **issue #13** 评论已发 |
+
+**关键发现（修正此前认知）**：初赛提交渠道不是 OctoSense-App-Hub 的 `Submit` issue，而是赛事官方仓库 `gosimfoundation/hackathon-agenticapp26` 的 issue #13（"请在这里提交每支队伍的初赛仓库地址"），格式为"队伍名 + GitHub 仓库地址"。赛事文档《作品提交与 OctoSense App Hub》明确："现阶段各轮评审以公开源码仓库和可运行作品为准，**无需等待 Hub 上架**"；Hub 预检（stamp/check/scan）是本地动作。App Hub 的 Submit issue 属**商店上架**路径，非初赛必需。
+
+**另修复一处真实缺陷**：`.gitignore` 的 `*.png` 曾把 `bundle/screenshots/` 三张截图排除在版本控制外（仓库里 listing.json 引用的截图实际不存在）。已改为仅忽略 `debug-t1*.png`，截图入库；因 bundle 文件字节未变，签名仍然有效（重跑 check 确认 PASSED）。
