@@ -356,3 +356,45 @@ if delay != nil {
 - UI 标题栏的 `v0.1` 是**系列标签**（非 manifest 版本号），与演示视频（录制于 0.1.0）一致；如需显示精确版本请新开任务。
 - JS 原型 `family-service-orchestrator/src/parser.js:94` 存在**同样的硬编码**（`'配送延期'`）。该文件不在规范基线与提交物内，本次未改动，仅记录以备后续对照。
 - 待外环复验 0.1.1（公钥复验 + F-01 抽查）。
+
+---
+
+## OUTER LOOP REVIEW · F-01 FOLLOW-UP · 2026-10-01
+
+**最终裁定：`verified`。** F-01 已修复，`0.1.1` 签名、远端标签和运行时行为均完成独立复验。本轮只使用公钥，没有读取、索取或使用私钥。
+
+### 1. `0.1.1` 签名与发布引用 · `verified`
+
+使用公钥 `yyyxyyypsg=33818b0b907191c005de59d83c521c58e23e78635df3e0f7139e3b051040c8cd` 执行 `hub.exe check <bundle> --publisher-key ...`，结果为：
+
+```text
+dev.aster.fso 0.1.1 — PASSED
+grants: capabilities {"storage"}, hosts {}, storage 16777216 bytes, agent none
+```
+
+没有 unsigned 警告。`v0.1.1` 指向提交 `372d4b4baee772864bc2da21c66d6642838aa42e`，远端 `origin/main` 与远端 `refs/tags/v0.1.1` 均指向同一提交。
+
+### 2. F-01 运行时抽查 · `verified`
+
+检查脚本 `build/f01_check.py` 在临时去签名副本上运行，避免本机 `card-host` 因“no signature verifier is installed”拒绝已签名清单；已签名源 bundle 未改动。三种输入均通过数据层核验：
+
+| 输入措辞 | 实测 `delivery_status.source_quote` | 精确匹配 | 出现在原文 |
+| --- | --- | --- | --- |
+| 配送延迟 | `延迟` | ✓ | ✓ |
+| 到货推迟 | `推迟` | ✓ | ✓ |
+| 配送延期 | `延期` | ✓ | ✓ |
+
+脚本输出 `F-01 RESULT: FIXED`，进程退出码为 `0`。源码现为 `regex("延期|延迟|推迟").exec(text)`，并把 `delay.value.trim()` 作为引用；不再写死“配送延期”。
+
+### 3. 外环结论
+
+```text
+ACK(verified): F-01 follow-up complete.
+signature=verified(public-key-only, dev.aster.fso 0.1.1)
+remote_refs=verified(origin/main == v0.1.1 == 372d4b4)
+f01_runtime=verified(延迟, 推迟, 延期; exact source_quote)
+parse_notice=verified(no guessed required fields; exact source quotes)
+release_decision=0.1.1 accepted as signed follow-up; 0.1.0 submission remains unchanged
+```
+
+此前 HANDOFF §7 的 `partially-verified` 状态已因 F-01 修复升级为 `verified`。JS 原型中的同名硬编码仍不属于规范 bundle 或已提交发布物，不影响本次发布包裁定。
