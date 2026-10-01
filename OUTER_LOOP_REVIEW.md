@@ -228,6 +228,73 @@ T1 全量重放暂不接受为 `verified`。T4 的消息标签增加高度后，
 
 ---
 
+## OUTER LOOP REVIEW · HANDOFF §7 · 2026-10-01
+
+**裁定：`partially-verified`，签名与运行序列通过；解析器有 1 个需修正的来源引用问题。** 本轮只使用公钥复验，没有读取、索取或使用发布者私钥。
+
+### 1. 签名包独立复验 · `verified`
+
+复验对象是当前工作树的 `bundle`。使用公钥参数：
+
+```text
+publisher-id: yyyxyyypsg
+public-key: 33818b0b907191c005de59d83c521c58e23e78635df3e0f7139e3b051040c8cd
+```
+
+执行：
+
+```text
+hub.exe check <bundle> --publisher-key yyyxyyypsg=33818b0b907191c005de59d83c521c58e23e78635df3e0f7139e3b051040c8cd
+```
+
+结果：
+
+```text
+dev.aster.fso 0.1.0 — PASSED
+grants: capabilities {"storage"}, hosts {}, storage 16777216 bytes, agent none
+```
+
+无 unsigned 警告。尝试用签名包启动 `card-host` 时，当前运行时报告“no signature verifier is installed”；这是本机运行时缺少发布者验证器，不能推翻上述 `hub check` 签名结果。为完成行为复验，下面使用临时副本（仅移除副本的 `integrity.signature`，源 bundle 未改动）运行应用。
+
+### 2. T1 序列抽查 · `verified`（运行副本）
+
+使用 `drive.py seq` 在临时运行副本端口 `8161` 重放三条序列；复验前后均未修改已签名源 bundle：
+
+| 序列 | 输入摘要 | 预期/实测终态 | replan 计数 |
+| --- | --- | --- | ---: |
+| S3 | 完整通知 → 执行 → 两次重规划冲突 → 手动方案 | `Unstable → AwaitingConfirm` | `3 → 0` |
+| S6（有效售后路径） | 完整通知 → 执行 → 服务完成 → 登记售后 → 售后过期 | `Completed → PostSale → Idle` | `0` |
+| S4 | 调试复位 → 粘贴通知 → 需补充 → 解析失败 | `Parsing → NeedInfo → ParseFailed` | `0` |
+
+三条序列的实测终态和计数均符合 T1 状态机。S6 采用有效路径；`PostSale` 直接收到不匹配事件时保持原状态，属于正确拒绝。
+
+### 3. `parse_notice` 来源与缺字段审计 · `partially-verified`
+
+通过源码审计确认：
+
+- `mk_fact`（`bundle/main.splash:228-230`）统一写入 `field/value/source_quote/source_id/confidence`。
+- 订单号、配送日期、安装时间、地址和状态均来自正则匹配；`rx_capture`（`bundle/main.splash:232-238`）把完整匹配文本作为引用，安装时间使用 `inst.value`，因此正常路径能回溯到输入文本。
+- 缺少 `order_id`、`delivery_date`、`installation_time` 时，`parse_notice`（`bundle/main.splash:322-326`）把字段名加入 `missing`，没有用默认日期、默认时间或猜测值填充；`merge_parsed`（`bundle/main.splash:509-513`）合并补充信息后重新计算缺字段。
+- 空文本进入 `missing: ["notice_text"]`；只含无法识别内容时进入 `errors`，不会生成伪事实。
+
+**发现 `F-01`（P1，需进入下个修订版）：** `bundle/main.splash:316-318` 用 `regex("延期|延迟|推迟").test(text)` 判断配送延误，却把 `source_quote` 固定写成 `"配送延期"`。因此输入“配送延迟”或“推迟”时，事实虽然带有非空 `source_quote`，但该值不是输入中的精确原文片段，和“每个事实可由原文核验”的严格约束不一致。
+
+建议修复为捕获实际命中的词组并将 `m.value.trim()` 写入 `source_quote`，然后重新运行 parser 回归、重新签名并发布修订版本。当前 `0.1.0` 签名与初赛提交保持不变，本轮不直接改动发布包。
+
+### 4. 外环结论
+
+```text
+ACK(partially-verified): HANDOFF §7 complete.
+signature=verified(public-key-only)
+t1_replay=verified(S3,S6,S4)
+parse_notice=partially-verified(F-01 exact source_quote for 延期|延迟|推迟)
+release_decision=keep submitted 0.1.0; queue F-01 for signed follow-up release
+```
+
+未发现私钥暴露、缺字段猜测或 T1 状态机终态偏差。后续若要把解析审计升级为 `verified`，只需修复 `F-01` 并对新包完成同样的公钥复验。
+
+---
+
 ## 内环交付记录 · 2026-10-01 · 人环指派 5 项完成
 
 | # | 事项 | 结果 |
