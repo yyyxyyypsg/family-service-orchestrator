@@ -9,8 +9,8 @@
   "platforms": ["windows"],
   "publisher": {
     "name": "agent aigc",
-    "support": "https://github.com/yyyxyxypsg",
-    "privacy_policy_url": "https://github.com/yyyxyxypsg"
+    "support": "https://github.com/yyyxyyypsg",
+    "privacy_policy_url": "https://github.com/yyyxyyypsg"
   },
   "release_notes": "0.1.0 初赛版本：17 状态机、通知解析、防编造事实卡、方案确认执行、幂等审计、失败重试。",
   "age_rating": "all",

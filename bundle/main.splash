@@ -776,12 +776,16 @@ let ChipQuiet = ButtonFlat{height: 30 padding: Inset{left: 9 right: 9}
     draw_bg +: {color: #xe5e5ea color_hover: #xd8d8dd color_down: #xc7c7cc border_radius: 15.0 border_size: 0.0}
     draw_text +: {color: #x1c1c1e color_hover: #x1c1c1e color_down: #x1c1c1e draw_text.text_style.font_size: 11}}
 
+let ChipDbg = ButtonFlat{height: 22 padding: Inset{left: 6 right: 6}
+    draw_bg +: {color: #xe5e5ea color_hover: #xd8d8dd color_down: #xc7c7cc border_radius: 12.0 border_size: 0.0}
+    draw_text +: {color: #x1c1c1e color_hover: #x1c1c1e color_down: #x1c1c1e draw_text.text_style.font_size: 10}}
+
 let ink = #x1c1c1e
 let secondary = #x8e8e93
 
 // ================= 界面 =================
 
-SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.color: #xf7f7fa
+SolidView{width: Fill height: Fill flow: Down padding: 12 spacing: 5 draw_bg.color: #xf7f7fa
 
     View{width: Fill height: Fit flow: Right spacing: 10 align: Align{y: 0.5}
         Label{text: "家庭服务事件编排器" draw_text.color: ink draw_text.text_style: theme.font_bold{font_size: 20}}
@@ -793,12 +797,8 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
             state_badge := Label{text: "Idle · 空闲" draw_text.color: #xffffff draw_text.text_style.font_size: 13}}
         replan_label := Label{text: "重规划计数: 0" draw_text.color: ink draw_text.text_style.font_size: 12}
     }
-    View{width: Fill height: Fit flow: Right spacing: 8
-        ChipQuiet{text: "重置全部" on_click: || clear_all()}
-        ChipQuiet{text: "调试复位" on_click: || reset_machine_only()}
-    }
 
-    input_area := TextInput{width: Fill height: 76 empty_text: "粘贴订单 / 配送 / 安装通知文本…"
+    input_area := TextInput{width: Fill height: 42 empty_text: "粘贴订单 / 配送 / 安装通知文本…"
         draw_bg +: {color: #xffffff border_radius: 10.0 border_size: 0.0}
         draw_text +: {color: ink color_empty: secondary draw_text.text_style.font_size: 13}}
 
@@ -809,14 +809,14 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
         ChipQuiet{text: "清空" on_click: || clear_all()}
     }
 
-    View{width: Fill height: Fit flow: Down
+    View{width: Fill height: 28 flow: Down
         msg_ok := Label{width: Fill text: "" visible: false draw_text.color: #x1b7f3b draw_text.text_style.font_size: 12}
         msg_warn := Label{width: Fill text: "" visible: false draw_text.color: #xb25e09 draw_text.text_style.font_size: 12}
         msg_fail := Label{width: Fill text: "" visible: false draw_text.color: #xb00020 draw_text.text_style.font_size: 12}
     }
 
     Label{text: "本地时间线" draw_text.color: secondary draw_text.text_style.font_size: 11}
-    timeline_list := ScrollYView{width: Fill height: 96 flow: Down spacing: 4 on_render: || {
+    timeline_list := ScrollYView{width: Fill height: 54 flow: Down spacing: 4 on_render: || {
         for item in timeline {
             View{width: Fill height: Fit flow: Right spacing: 8 align: Align{y: 0.5}
                 RoundedView{width: 8 height: 8 draw_bg +: {color: dot_color(item.status) border_radius: 4.0}}
@@ -827,7 +827,7 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
     }}
 
     Label{text: "解析事实（含原文依据）" draw_text.color: secondary draw_text.text_style.font_size: 11}
-    facts_list := ScrollYView{width: Fill height: 148 flow: Down spacing: 4 on_render: || {
+    facts_list := ScrollYView{width: Fill height: 72 flow: Down spacing: 4 on_render: || {
         if parsed == nil {
             Label{text: "解析通知后，事实和来源会显示在这里。" draw_text.color: secondary draw_text.text_style.font_size: 12}
         }
@@ -847,7 +847,7 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
     }}
 
     Label{text: "待确认方案" draw_text.color: secondary draw_text.text_style.font_size: 11}
-    plans_list := ScrollYView{width: Fill height: 86 flow: Down spacing: 4 on_render: || {
+    plans_list := ScrollYView{width: Fill height: 58 flow: Down spacing: 4 on_render: || {
         if plans.len() == 0 {
             Label{text: "正在等待可执行方案。" draw_text.color: secondary draw_text.text_style.font_size: 12}
         }
@@ -872,23 +872,10 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
         ChipGreen{text: "确认执行" on_click: || execute_plan(false)}
         ChipAmber{text: "模拟提醒失败" on_click: || execute_plan(true)}
         ChipQuiet{text: "拒绝" on_click: || reject_plan()}
-        ChipQuiet{text: "手动方案" on_click: || manual_plan()}
     }
 
-    View{width: Fill height: Fit flow: Right spacing: 6 align: Align{y: 0.5}
-        Label{text: "执行审计" draw_text.color: secondary draw_text.text_style.font_size: 11}
-        Label{text: "｜调试事件:" draw_text.color: #xc7c7cc draw_text.text_style.font_size: 10}
-        ChipQuiet{text: "状态已变化" on_click: || apply_event("state_changed")}
-        ChipQuiet{text: "新事件" on_click: || apply_event("new_event")}
-        ChipQuiet{text: "重规划就绪" on_click: || apply_event("replan_ready")}
-        ChipQuiet{text: "重规划冲突" on_click: || apply_event("replan_conflict")}
-        ChipQuiet{text: "兜底就绪" on_click: || apply_event("fallback_ready")}
-        ChipQuiet{text: "服务完成" on_click: || apply_event("service_done")}
-        ChipQuiet{text: "登记售后" on_click: || apply_event("register_postsale")}
-        ChipQuiet{text: "售后处理" on_click: || apply_event("postsale_handled")}
-        ChipQuiet{text: "售后过期" on_click: || apply_event("postsale_expired")}
-    }
-    audit_list := ScrollYView{width: Fill height: 108 flow: Down spacing: 3 on_render: || {
+    Label{text: "执行审计" draw_text.color: secondary draw_text.text_style.font_size: 11}
+    audit_list := ScrollYView{width: Fill height: 42 flow: Down spacing: 3 on_render: || {
         if audit.len() == 0 {
             Label{text: "还没有执行记录。" draw_text.color: secondary draw_text.text_style.font_size: 11}
         }
@@ -897,7 +884,45 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
         }
     }}
 
-    log_list := ScrollYView{width: Fill height: 58 flow: Down spacing: 2 on_render: || {
+    Label{text: "调试事件（T1 全量重放，22 事件直注）" draw_text.color: secondary draw_text.text_style.font_size: 11}
+    View{width: Fill height: Fit flow: Down spacing: 3
+        View{width: Fill height: Fit flow: Right spacing: 4
+            ChipDbg{text: "粘贴通知" on_click: || apply_event("paste_notice")}
+            ChipDbg{text: "解析成功" on_click: || apply_event("parsed")}
+            ChipDbg{text: "解析失败" on_click: || apply_event("parse_failed")}
+            ChipDbg{text: "需补充" on_click: || apply_event("need_info")}
+            ChipDbg{text: "发现冲突" on_click: || apply_event("conflict_found")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 4
+            ChipDbg{text: "方案就绪" on_click: || apply_event("plan_ready")}
+            ChipDbg{text: "用户确认" on_click: || apply_event("user_confirmed")}
+            ChipDbg{text: "用户拒绝" on_click: || apply_event("user_rejected")}
+            ChipDbg{text: "全部成功" on_click: || apply_event("all_actions_succeeded")}
+            ChipDbg{text: "部分成功" on_click: || apply_event("partial_actions_succeeded")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 4
+            ChipDbg{text: "全部失败" on_click: || apply_event("all_actions_failed")}
+            ChipDbg{text: "核验通过" on_click: || apply_event("verify_ok")}
+            ChipDbg{text: "状态已变化" on_click: || apply_event("state_changed")}
+            ChipDbg{text: "新事件" on_click: || apply_event("new_event")}
+            ChipDbg{text: "重规划就绪" on_click: || apply_event("replan_ready")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 4
+            ChipDbg{text: "重规划冲突" on_click: || apply_event("replan_conflict")}
+            ChipDbg{text: "手动方案" on_click: || manual_plan()}
+            ChipDbg{text: "兜底就绪" on_click: || apply_event("fallback_ready")}
+            ChipDbg{text: "服务完成" on_click: || apply_event("service_done")}
+            ChipDbg{text: "登记售后" on_click: || apply_event("register_postsale")}
+        }
+        View{width: Fill height: Fit flow: Right spacing: 4
+            ChipDbg{text: "售后处理" on_click: || apply_event("postsale_handled")}
+            ChipDbg{text: "售后过期" on_click: || apply_event("postsale_expired")}
+            ChipDbg{text: "重置全部" on_click: || clear_all()}
+            ChipDbg{text: "调试复位" on_click: || reset_machine_only()}
+        }
+    }
+
+    log_list := ScrollYView{width: Fill height: 16 flow: Down spacing: 2 on_render: || {
         if log.len() == 0 {
             Label{text: "（状态机转移日志）" draw_text.color: #xc7c7cc draw_text.text_style.font_size: 10}
         }

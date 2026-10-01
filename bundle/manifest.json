@@ -4,7 +4,7 @@
   ],
   "id": "dev.aster.fso",
   "integrity": {
-    "bundle_blake3": "2533fb426e7d1a7028632b883cc5aab227f3357cde8f5ed72b4eda196113fd28"
+    "bundle_blake3": "a07e201be64b4ed886f805c40b4356263f83e8526f140e6665cd19a12ff036d7"
   },
   "name": "家庭服务事件编排器",
   "schema": 1,
