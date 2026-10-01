@@ -1,2 +1,4 @@
 .local-state/
-*.png
+debug-t1*.png
+build/video/scene-*.png
+build/video/v-*.png
