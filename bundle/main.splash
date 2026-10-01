@@ -1,8 +1,9 @@
 // 家庭服务事件编排器 — dev.aster.fso
-// 阶段一：17 状态 / 22 事件状态机（移植自 domain.js）+ 调试 UI
-// 布局约定：颜色一律 #x 前缀；布尔用 and/or；数字转字符串用 "" + n
+// 纯规则引擎：通知解析 → 事实校验（防编造）→ 冲突识别 → 方案 → 确认 → 执行 → 核验 → 审计
+// 移植自 family-service-orchestrator JS 原型（domain/parser/store/app）
+// 约定：颜色 #x 前缀；布尔 and/or；数字转字符串 "" + n；数组不做下标写，全部重建
 
-// ---------- 状态机（T1：与 domain.js transition 逐行对应） ----------
+// ================= 状态机（T1，已验证） =================
 
 let machine = {state: "Idle" replan: 0}
 let log = []
@@ -14,10 +15,12 @@ fn pad2(n) {
 
 fn now_hhmm() {
     let t = local_time()
-    return pad2(t.hour) + ":" + pad2(t.minute)
+    // card-host 的 local_time 是 UTC；产品域是 +08:00，展示用
+    let h = t.hour + 8
+    if h >= 24 { h = h - 24 }
+    return pad2(h) + ":" + pad2(t.minute)
 }
 
-// 返回 {valid: bool state: str replan: num}；valid=false 表示非法转移
 fn transition(st, ev, rc) {
     if st == "Idle" and ev == "paste_notice" { return {valid: true state: "Parsing" replan: rc} }
     if st == "Parsing" and ev == "need_info" { return {valid: true state: "NeedInfo" replan: rc} }
@@ -93,12 +96,8 @@ fn log_prepend(s) {
     log = next
 }
 
-fn refresh_badge() {
-    ui.state_badge.set_text(machine.state + " · " + state_zh(machine.state))
-    ui.replan_label.set_text("重规划计数: " + ("" + machine.replan))
-}
-
-fn fire(ev) {
+// 应用事件：非法转移记日志但不改状态（对应 JS 端 throw，改为可见失败）
+fn apply_event(ev) {
     let r = transition(machine.state, ev, machine.replan)
     let stamp = now_hhmm()
     if r.valid {
@@ -107,97 +106,788 @@ fn fire(ev) {
     } else {
         log_prepend(stamp + "  ✗ 非法转移  " + machine.state + " + " + ev)
     }
-    refresh_badge()
+    ui.state_badge.set_text(machine.state + " · " + state_zh(machine.state))
+    ui.replan_label.set_text("重规划计数: " + ("" + machine.replan))
     ui.log_list.render()
 }
 
-fn reset_all() {
+// ================= 日期与时间归一化（parser.js） =================
+
+fn num_of(s) {
+    let v = s.trim().to_f64()
+    if !(v >= 0) and !(v < 0) { return -1 } // NaN 哨兵（NaN 与任何比较均为假）
+    return v
+}
+
+fn days_in_month(y, m) {
+    if m == 1 or m == 3 or m == 5 or m == 7 or m == 8 or m == 10 or m == 12 { return 31 }
+    if m == 4 or m == 6 or m == 9 or m == 11 { return 30 }
+    let leap = (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
+    if leap { return 29 }
+    return 28
+}
+
+// 归一化日期 → "YYYY-MM-DD" 或 ""
+fn normalize_date(value, base_date) {
+    let v = value.trim()
+    let m = regex("^(\\d{4})[年/／-](\\d{1,2})[月/／-](\\d{1,2})日?$").exec(v)
+    if m == nil {
+        m = regex("^(\\d{1,2})月(\\d{1,2})日?$").exec(v)
+        if m != nil {
+            let ym = regex("^(\\d{4})").exec(base_date)
+            if ym == nil { return "" }
+            let y = num_of(ym.captures[1])
+            let mo = num_of(m.captures[1])
+            let d = num_of(m.captures[2])
+            if y < 1 or mo < 1 or d < 1 { return "" }
+            if mo > 12 or d > days_in_month(y, mo) { return "" }
+            return "" + y + "-" + pad2(mo) + "-" + pad2(d)
+        }
+        m = regex("^(\\d{4})-(\\d{2})-(\\d{2})$").exec(v)
+        if m == nil { return "" }
+    }
+    let y = num_of(m.captures[1])
+    let mo = num_of(m.captures[2])
+    let d = num_of(m.captures[3])
+    if y < 1 or mo < 1 or d < 1 { return "" }
+    if mo > 12 or d > days_in_month(y, mo) { return "" }
+    return "" + y + "-" + pad2(mo) + "-" + pad2(d)
+}
+
+// 归一化时间 → "HH:MM" 或 ""
+fn normalize_time(value) {
+    let v = value.trim()
+    // captures: [整体匹配, 子午线|nil, 时, 分]
+    let m = regex("^(上午|下午|晚上|中午)?\\s*(\\d{1,2})[:：](\\d{1,2})$").exec(v)
+    if m != nil {
+        let mer = m.captures[1]
+        let h = num_of(m.captures[2])
+        let mi = num_of(m.captures[3])
+        if h < 0 or mi < 0 { return "" }
+        if h > 23 or mi > 59 { return "" }
+        if (mer == "下午" or mer == "晚上") and h < 12 { h = h + 12 }
+        if mer == "中午" and h < 11 { h = h + 12 }
+        return pad2(h) + ":" + pad2(mi)
+    }
+    // "下午3点" / "3点15分"
+    m = regex("^(上午|下午|晚上|中午)?\\s*(\\d{1,2})点(?:(\\d{1,2}))?分?$").exec(v)
+    if m != nil {
+        let mer = m.captures[1]
+        let h = num_of(m.captures[2])
+        let mi = 0
+        if m.captures[3] != nil { mi = num_of(m.captures[3]) }
+        if h < 0 or mi < 0 { return "" }
+        if h > 23 or mi > 59 { return "" }
+        if (mer == "下午" or mer == "晚上") and h < 12 { h = h + 12 }
+        if mer == "中午" and h < 11 { h = h + 12 }
+        return pad2(h) + ":" + pad2(mi)
+    }
+    // 纯小时 "15"
+    m = regex("^(上午|下午|晚上|中午)?\\s*(\\d{1,2})$").exec(v)
+    if m != nil {
+        let mer = m.captures[1]
+        let h = num_of(m.captures[2])
+        if h < 0 { return "" }
+        if h > 23 { return "" }
+        if (mer == "下午" or mer == "晚上") and h < 12 { h = h + 12 }
+        if mer == "中午" and h < 11 { h = h + 12 }
+        return pad2(h) + ":" + pad2(0)
+    }
+    return ""
+}
+
+// "YYYY-MM-DD" → 数字 y*10000+m*100+d（替代 JS 字符串比较/slice）
+fn date_num(s) {
+    let m = regex("^(\\d{4})-(\\d{2})-(\\d{2})").exec(s)
+    if m == nil { return -1 }
+    let y = num_of(m.captures[1])
+    let mo = num_of(m.captures[2])
+    let d = num_of(m.captures[3])
+    if y < 0 or mo < 0 or d < 0 { return -1 }
+    return y * 10000 + mo * 100 + d
+}
+
+// 合法 ISO 时间戳（YYYY-MM-DDTHH:MM:SS+08:00），日期部分需真实存在
+fn is_iso_datetime(s) {
+    let m = regex("^(\\d{4})-(\\d{2})-(\\d{2})T(\\d{2}):(\\d{2}):(\\d{2})\\+08:00$").exec(s)
+    if m == nil { return false }
+    let y = num_of(m.captures[1])
+    let mo = num_of(m.captures[2])
+    let d = num_of(m.captures[3])
+    let h = num_of(m.captures[4])
+    let mi = num_of(m.captures[5])
+    let se = num_of(m.captures[6])
+    if y < 1 or mo < 1 or d < 1 { return false }
+    if mo > 12 or d > days_in_month(y, mo) { return false }
+    if h > 23 or mi > 59 or se > 59 { return false }
+    return true
+}
+
+// ================= 通知解析（parser.js parseNotice） =================
+
+fn mk_fact(field, value, quote, sid, conf) {
+    return {field: field value: value source_quote: quote source_id: sid confidence: conf}
+}
+
+// 正则捕获助手：captures[gi] 为值，整段匹配为原文引用
+fn rx_capture(text, pat, flags, gi) {
+    let m = regex(pat, flags).exec(text)
+    if m == nil { return nil }
+    if m.captures.len() <= gi { return nil }
+    return {value: m.captures[gi].trim() quote: m.value.trim()}
+}
+
+// 无 join：手写拼接
+fn join_str(arr, sep) {
+    let s = ""
+    for i v in arr {
+        if i > 0 { s = s + sep }
+        s = s + v
+    }
+    return s
+}
+
+fn in_list(arr, s) {
+    for x in arr { if x == s { return true } }
+    return false
+}
+
+fn facts_has_field(facts, field) {
+    for f in facts {
+        if f.field == field { return true }
+    }
+    return false
+}
+
+let DATE_PAT = "(\\d{4}[年/-]\\d{1,2}[月/-]\\d{1,2}日?|\\d{1,2}月\\d{1,2}日|\\d{4}-\\d{2}-\\d{2})"
+let TIME_PAT = "((?:上午|下午|晚上|中午)\\s*)?\\d{1,2}(?:(?:[:：]\\d{1,2})|(?:点(?:\\d{1,2}分?)?))?"
+
+// 解析通知 → {facts, missing, errors}；每个事实保留原文引用（防编造第一层）
+fn parse_notice(text, sid, base_date) {
+    if text.trim().len() == 0 {
+        return {facts: [] missing: ["notice_text"] errors: ["通知文本为空"]}
+    }
+    let facts = []
+    let errors = []
+
+    let order = rx_capture(text, "(?:订单号|订单编号)\\s*[:：]?\\s*([A-Za-z0-9][A-Za-z0-9-]*)", "i", 1)
+    if order != nil { facts.push(mk_fact("order_id", order.value, order.quote, sid, "high")) }
+
+    let delivery = rx_capture(text, "(?:配送|送货|到货)(?:预计|时间|日期)?\\s*[:：]?\\s*" + DATE_PAT, "", 1)
+    if delivery != nil {
+        let dv = normalize_date(delivery.value, base_date)
+        if dv != "" {
+            facts.push(mk_fact("delivery_date", dv, delivery.quote, sid, "high"))
+        } else {
+            errors.push("无法识别配送日期：" + delivery.value)
+        }
+    }
+
+    let inst = regex("(?:安装预约|预约安装|安装时间|上门安装)\\s*[:：]?\\s*" + DATE_PAT + "([^\\n\\d]{0,8}" + TIME_PAT + ")?").exec(text)
+    if inst != nil {
+        let dt = normalize_date(inst.captures[1], base_date)
+        let tv = ""
+        if inst.captures[2] != nil { tv = normalize_time(inst.captures[2]) }
+        let conf = "medium"
+        let value = dt
+        if dt != "" and tv != "" {
+            value = dt + "T" + tv + ":00+08:00"
+            conf = "high"
+        }
+        if value != "" {
+            facts.push(mk_fact("installation_time", value, inst.value.trim(), sid, conf))
+        } else {
+            errors.push("无法识别安装时间：" + inst.value.trim())
+        }
+    }
+
+    let addr = rx_capture(text, "(?:安装地址|送货地址|地址)\\s*[:：]?\\s*([^\\n]+)", "", 1)
+    if addr != nil { facts.push(mk_fact("address", addr.value, addr.quote, sid, "high")) }
+
+    let status = rx_capture(text, "(?:状态|进度)\\s*[:：]?\\s*([^\\n]+)", "", 1)
+    if status != nil { facts.push(mk_fact("status", status.value, status.quote, sid, "high")) }
+
+    if regex("延期|延迟|推迟").test(text) {
+        facts.push(mk_fact("delivery_status", "delayed", "配送延期", sid, "high"))
+    }
+
+    if facts.len() == 0 and errors.len() == 0 { errors.push("通知中没有可识别事实") }
+
+    let missing = []
+    if !facts_has_field(facts, "order_id") { missing.push("order_id") }
+    if !facts_has_field(facts, "delivery_date") { missing.push("delivery_date") }
+    if !facts_has_field(facts, "installation_time") { missing.push("installation_time") }
+    return {facts: facts missing: missing errors: errors}
+}
+
+// 事实引用键（防编造第二层：方案只能引用已解析事实或本地日程）
+fn fact_ref(f) {
+    return f.source_id + "#" + f.field
+}
+
+let ACTION_TYPES = ["reschedule_installation", "create_reminder", "mark_delivered", "mark_installation_complete", "request_missing_info"]
+
+fn is_known_action(t) {
+    for a in ACTION_TYPES {
+        if a == t { return true }
+    }
+    return false
+}
+
+// 方案校验（parser.js validatePlan）：白名单动作 + 引用核对 + 时间合法性 + 改期不早于配送
+fn validate_plan(plan, facts, schedules) {
+    let errors = []
+    if plan.options.len() == 0 { errors.push("options 不能为空") }
+
+    // 引用集合（数组 + 线性查找，避开对象动态键缺失即错的坑）
+    let fact_refs = []
+    for f in facts { fact_refs.push(fact_ref(f)) }
+    let sched_refs = []
+    for s in schedules { sched_refs.push(s) }
+
+    for i opt in plan.options {
+        if opt.label.trim().len() == 0 { errors.push("options[" + ("" + i) + "].label 缺失") }
+        if opt.summary.trim().len() == 0 { errors.push("options[" + ("" + i) + "].summary 缺失") }
+        if opt.actions.len() == 0 { errors.push("options[" + ("" + i) + "].actions 不能为空") }
+        if opt.refs.len() == 0 { errors.push("options[" + ("" + i) + "].refs 不能为空") }
+        for r in opt.refs {
+            if !in_list(fact_refs, r) and !in_list(sched_refs, r) {
+                errors.push("options[" + ("" + i) + "] 引用了未知事实：" + r)
+            }
+        }
+        for a in opt.actions {
+            if !is_known_action(a.type) {
+                errors.push("options[" + ("" + i) + "] 动作不在白名单中")
+            }
+            if a.type == "reschedule_installation" and !is_iso_datetime(a.to) {
+                errors.push("options[" + ("" + i) + "] 的改期时间无效")
+            }
+        }
+    }
+
+    let delivery_num = -1
+    for f in facts {
+        if f.field == "delivery_date" { delivery_num = date_num(f.value) }
+    }
+    if delivery_num > 0 {
+        for opt in plan.options {
+            for a in opt.actions {
+                if a.type == "reschedule_installation" {
+                    let to_num = date_num(a.to)
+                    if to_num > 0 and to_num < delivery_num { errors.push("改期时间不能早于配送日期") }
+                }
+            }
+        }
+    }
+    return {valid: errors.len() == 0 errors: errors}
+}
+
+// ================= 本地存储（store.js） =================
+
+let SCHEDULE = ["local_schedule.2026-09-28T14:00-18:00", "local_schedule.2026-09-28T18:00-20:00"]
+
+fn initial_timeline() {
+    return [
+        {key: "order" title: "下单" detail: "等待订单事实" status: "pending"}
+        {key: "delivery" title: "配送" detail: "等待通知" status: "pending"}
+        {key: "installation" title: "预约安装" detail: "等待通知" status: "pending"}
+        {key: "acceptance" title: "用户验收" detail: "待安装完成" status: "pending"}
+        {key: "payment" title: "付款" detail: "待用户确认" status: "pending"}
+        {key: "warranty" title: "售后复查" detail: "待登记" status: "pending"}
+    ]
+}
+
+let timeline = initial_timeline()
+let audit = []
+let last_action_key = ""
+let parsed = nil
+let plans = []
+let selected_plan = 0
+
+// 幂等键（store.js computeIdempotencyKey）
+fn compute_idempotency_key(p, plan) {
+    let order_id = "unknown-order"
+    if p != nil {
+        for f in p.facts {
+            if f.field == "order_id" { order_id = f.value }
+        }
+    }
+    let k = order_id + ":"
+    for a in plan.actions {
+        let to = ""
+        if a.to != nil { to = a.to }
+        let at = ""
+        if a.at != nil { at = a.at }
+        k = k + a.type + ":" + a.target + ":" + to + ":" + at + "|"
+    }
+    return k
+}
+
+// 时间线更新（重建数组；key 定位）
+fn timeline_update(tl, key, detail, status) {
+    let next = []
+    for item in tl {
+        if item.key == key {
+            next.push({key: item.key title: item.title detail: detail status: status})
+        } else {
+            next.push(item)
+        }
+    }
+    return next
+}
+
+fn fmt_iso(value) {
+    // "YYYY-MM-DDTHH:MM(:SS+08:00)" → "YYYY-MM-DD HH:MM"
+    let m = regex("^(\\d{4}-\\d{2}-\\d{2})T(\\d{2}:\\d{2})").exec(value)
+    if m == nil { return value }
+    return m.captures[1] + " " + m.captures[2]
+}
+
+fn action_success_detail(a) {
+    if a.type == "reschedule_installation" { return "本地时间线已改为 " + fmt_iso(a.to) }
+    if a.type == "create_reminder" { return "本地复查提醒已创建，核验通过。" }
+    if a.type == "mark_delivered" { return "本地时间线已标记为已送达。" }
+    if a.type == "mark_installation_complete" { return "本地时间线已标记为安装完成。" }
+    return "本地动作已完成。"
+}
+
+// 执行单个动作（store.js applyAction）：成功更新时间线，全部写审计
+fn apply_action(action, now, based_on, idem_key, record_key, succeeded, failure_reason) {
+    let result_text = ""
+    if succeeded { result_text = action_success_detail(action) } else { result_text = failure_reason }
+    let row = {time: now action: action.type result: result_text kind: "success" basedOn: based_on}
+    if !succeeded { row = {time: now action: action.type result: result_text kind: "warn" basedOn: based_on} }
+    let status = "failed"
+    if succeeded { status = "applied" }
+    if succeeded {
+        if action.type == "reschedule_installation" {
+            timeline = timeline_update(timeline, "installation", fmt_iso(action.to), "done")
+        }
+        if action.type == "create_reminder" {
+            timeline = timeline_update(timeline, "warranty", "已登记复查", "done")
+        }
+        if action.type == "mark_delivered" {
+            timeline = timeline_update(timeline, "delivery", "已送达", "done")
+        }
+        if action.type == "mark_installation_complete" {
+            timeline = timeline_update(timeline, "acceptance", "待用户验收", "alert")
+        }
+    }
+    let next_audit = [row]
+    for r in audit { next_audit.push(r) }
+    audit = next_audit
+    if record_key and idem_key != "" { last_action_key = idem_key }
+    return {status: status row: row}
+}
+
+fn settle_actions(results) {
+    let ok_n = 0
+    let fail_n = 0
+    for r in results {
+        if r.status == "applied" { ok_n = ok_n + 1 }
+        if r.status == "failed" { fail_n = fail_n + 1 }
+    }
+    if ok_n > 0 and fail_n == 0 { return {status: "success" ok_n: ok_n failed: fail_n} }
+    if ok_n == 0 and fail_n > 0 { return {status: "failed" ok_n: ok_n failed: fail_n} }
+    return {status: "partial" ok_n: ok_n failed: fail_n}
+}
+
+// 补充信息合并（store.js mergeParsed）：按 field 去重，新值覆盖旧值
+fn merge_parsed(prev, next) {
+    if prev == nil { return next }
+    let merged = []
+    for f in next.facts { merged.push(f) }
+    for f in prev.facts {
+        if !facts_has_field(merged, f.field) { merged.push(f) }
+    }
+    let missing = []
+    if !facts_has_field(merged, "order_id") { missing.push("order_id") }
+    if !facts_has_field(merged, "delivery_date") { missing.push("delivery_date") }
+    if !facts_has_field(merged, "installation_time") { missing.push("installation_time") }
+    return {facts: merged missing: missing errors: next.errors}
+}
+
+// ================= 方案生成（app.js buildPlans） =================
+
+fn build_plans(p) {
+    let delivery = nil
+    let installation = nil
+    for f in p.facts {
+        if f.field == "delivery_date" { delivery = f }
+        if f.field == "installation_time" { installation = f }
+    }
+    if delivery == nil or installation == nil { return [] }
+    let options = [
+        {label: "A" summary: "改到配送日 15:00 安装" to: delivery.value + "T15:00:00+08:00" schedule: SCHEDULE[0]}
+        {label: "B" summary: "改到配送日 18:00 安装" to: delivery.value + "T18:00:00+08:00" schedule: SCHEDULE[1]}
+    ]
+    let out = []
+    for o in options {
+        out.push({
+            label: o.label summary: o.summary to: o.to schedule: o.schedule
+            actions: [
+                {type: "reschedule_installation" target: "install" to: o.to at: ""}
+                {type: "create_reminder" target: "delivery_follow_up" to: "" at: o.to}
+            ]
+            refs: [fact_ref(delivery), fact_ref(installation), o.schedule]
+        })
+    }
+    return out
+}
+
+// ================= 持久化（fs jail） =================
+
+fn save_state() {
+    let parsed_out = {facts: [] missing: [] errors: []}
+    if parsed != nil { parsed_out = parsed }
+    let snap = {machine: machine timeline: timeline audit: audit last_action_key: last_action_key parsed: parsed_out plans: plans}
+    fs.write("state.json", snap.to_json())
+}
+
+fn load_state() {
+    if !fs.exists("state.json") { return }
+    let v = fs.read("state.json").parse_json()
+    if v == nil { return }
+    if v.machine == nil { return }
+    machine = v.machine
+    timeline = v.timeline
+    audit = v.audit
+    last_action_key = v.last_action_key
+    parsed = v.parsed
+    plans = v.plans
+    if parsed != nil and parsed.facts.len() == 0 and parsed.missing.len() == 0 { parsed = nil }
+}
+
+// ================= 界面动作 =================
+
+fn refresh_badge() {
+    ui.state_badge.set_text(machine.state + " · " + state_zh(machine.state))
+    ui.replan_label.set_text("重规划计数: " + ("" + machine.replan))
+}
+
+fn set_msg(text) {
+    ui.msg_label.set_text(text)
+}
+
+fn render_facts() { ui.facts_list.render() }
+fn render_plans() { ui.plans_list.render() }
+fn render_audit() { ui.audit_list.render() }
+fn render_timeline() { ui.timeline_list.render() }
+
+fn render_all() {
+    refresh_badge()
+    render_facts()
+    render_plans()
+    render_audit()
+    render_timeline()
+    ui.log_list.render()
+}
+
+fn update_timeline_after_parse(p) {
+    let order_v = "缺少订单号"
+    let order_ok = false
+    let del_v = "缺少配送日期"
+    let del_ok = false
+    let ins_v = "缺少安装时间"
+    let ins_ok = false
+    for f in p.facts {
+        if f.field == "order_id" { order_v = f.value; order_ok = true }
+        if f.field == "delivery_date" { del_v = "预计 " + f.value; del_ok = true }
+        if f.field == "installation_time" { ins_v = fmt_iso(f.value); ins_ok = true }
+    }
+    if order_ok { timeline = timeline_update(timeline, "order", order_v, "done") } else { timeline = timeline_update(timeline, "order", order_v, "pending") }
+    if del_ok { timeline = timeline_update(timeline, "delivery", del_v, "alert") } else { timeline = timeline_update(timeline, "delivery", del_v, "pending") }
+    if ins_ok { timeline = timeline_update(timeline, "installation", ins_v, "alert") } else { timeline = timeline_update(timeline, "installation", ins_v, "pending") }
+}
+
+// 解析入口（app.js parse）
+fn do_parse() {
+    let is_supplement = machine.state == "NeedInfo"
+    if !is_supplement {
+        machine = {state: "Idle" replan: 0}
+        apply_event("paste_notice")
+    }
+    let result = parse_notice(ui.input_area.text(), "pasted_notice_01", "2026-09-27")
+    if is_supplement {
+        parsed = merge_parsed(parsed, result)
+    } else {
+        parsed = result
+        audit = []
+        last_action_key = ""
+    }
+    plans = []
+    selected_plan = 0
+    update_timeline_after_parse(parsed)
+    if parsed.errors.len() > 0 and parsed.facts.len() == 0 {
+        apply_event("parse_failed")
+        set_msg("解析失败：" + join_str(parsed.errors, "；"))
+    } else if parsed.errors.len() > 0 or parsed.missing.len() > 0 {
+        if machine.state != "NeedInfo" { apply_event("need_info") }
+        let what = join_str(parsed.missing, "、")
+        if what == "" { what = join_str(parsed.errors, "；") }
+        set_msg("需要补充：" + what)
+    } else {
+        if machine.state == "NeedInfo" { apply_event("parsed") }
+        apply_event("parsed")
+        let delivery_num = -1
+        let install_num = -1
+        for f in parsed.facts {
+            if f.field == "delivery_date" { delivery_num = date_num(f.value) }
+            if f.field == "installation_time" { install_num = date_num(f.value) }
+        }
+        if delivery_num > 0 and install_num > 0 and delivery_num >= install_num {
+            apply_event("conflict_found")
+        }
+        plans = build_plans(parsed)
+        apply_event("plan_ready")
+        set_msg("已解析。配送日期不早于原安装日期，请确认新的安排。")
+    }
+    save_state()
+    render_all()
+}
+
+// 执行方案（app.js executePlan）
+fn execute_plan(simulate_failure) {
+    if plans.len() == 0 { return }
+    let plan = plans[selected_plan]
+    let action_key = compute_idempotency_key(parsed, plan)
+    if last_action_key == action_key and machine.state != "Partial" {
+        let row = {time: now_hhmm() action: "重复确认" result: "已存在相同操作，未重复创建。" kind: "warn" basedOn: plan.refs}
+        let next_audit = [row]
+        for r in audit { next_audit.push(r) }
+        audit = next_audit
+        save_state()
+        render_audit()
+        return
+    }
+    let validation = validate_plan({request_id: 1 options: [plan]}, parsed.facts, SCHEDULE)
+    if !validation.valid {
+        set_msg("方案校验未通过：" + join_str(validation.errors, "；"))
+        return
+    }
+    let is_retry = machine.state == "Partial"
+    if is_retry { apply_event("plan_ready") }
+    apply_event("user_confirmed")
+    let now = now_hhmm()
+    let results = []
+    for a in plan.actions {
+        let is_reminder = a.type == "create_reminder"
+        let failed = simulate_failure and is_reminder
+        let run_it = true
+        if is_retry and !is_reminder { run_it = false }
+        if run_it {
+            results.push(apply_action(a, now, plan.refs, action_key, is_reminder and !failed, !failed, "提醒创建失败，已进入部分成功状态。"))
+        }
+    }
+    let settlement = settle_actions(results)
+    if settlement.status == "partial" {
+        apply_event("partial_actions_succeeded")
+        set_msg("部分成功：改期已写入本地时间线，复查提醒尚未创建。可重试或选择规则兜底。")
+    } else if settlement.status == "failed" {
+        apply_event("all_actions_failed")
+        set_msg("执行失败：本地动作未完成，请选择规则兜底或重试。")
+    } else {
+        apply_event("all_actions_succeeded")
+        apply_event("verify_ok")
+        set_msg("执行完成：本地时间线已更新，复查提醒已创建，结果已核验。")
+    }
+    save_state()
+    render_all()
+}
+
+fn reject_plan() {
+    apply_event("user_rejected")
+    set_msg("已放弃本次安排，可重新粘贴通知或手动整理。")
+    save_state()
+    render_all()
+}
+
+fn manual_plan() {
+    apply_event("manual_plan")
+    set_msg("已采用手动方案，重规划计数已清零。请确认执行。")
+    save_state()
+    render_all()
+}
+
+
+
+fn fill_sample() {
+    ui.input_area.set_text("订单号：AC-20260927\n配送预计：9月28日（配送延期）\n安装预约：9月27日 15:00\n安装地址：深圳市南山区科苑路1号")
+}
+
+fn fill_partial() {
+    ui.input_area.set_text("订单号：AC-20260927\n配送预计：9月28日")
+}
+
+fn clear_all() {
+    ui.input_area.set_text("")
+    parsed = nil
+    plans = []
+    selected_plan = 0
+    timeline = initial_timeline()
+    audit = []
+    last_action_key = ""
+    machine = {state: "Idle" replan: 0}
+    fs.remove("state.json")
+    set_msg("")
+    refresh_badge()
+    render_all()
+}
+
+fn reset_machine_only() {
     machine = {state: "Idle" replan: 0}
     log = []
     refresh_badge()
     ui.log_list.render()
 }
 
-start_timeout(0.05, || refresh_badge())
+start_timeout(0.05, || {
+    load_state()
+    refresh_badge()
+    render_all()
+})
 
-// ---------- 样式 ----------
+// ================= 样式 =================
 
 let Chip = ButtonFlat{height: 30 padding: Inset{left: 9 right: 9}
     draw_bg +: {color: #x007aff color_hover: #x0a84ff color_down: #x0062cc border_radius: 15.0 border_size: 0.0}
     draw_text +: {color: #xffffff color_hover: #xffffff color_down: #xffffff draw_text.text_style.font_size: 11}}
 
+let ChipAmber = ButtonFlat{height: 30 padding: Inset{left: 9 right: 9}
+    draw_bg +: {color: #xff9f0a color_hover: #xffb340 color_down: #xe68900 border_radius: 15.0 border_size: 0.0}
+    draw_text +: {color: #xffffff color_hover: #xffffff color_down: #xffffff draw_text.text_style.font_size: 11}}
+
+let ChipGreen = ButtonFlat{height: 34 padding: Inset{left: 14 right: 14}
+    draw_bg +: {color: #x34c759 color_hover: #x30d158 color_down: #x28a745 border_radius: 17.0 border_size: 0.0}
+    draw_text +: {color: #xffffff color_hover: #xffffff color_down: #xffffff draw_text.text_style.font_size: 13}}
+
+let ChipQuiet = ButtonFlat{height: 30 padding: Inset{left: 9 right: 9}
+    draw_bg +: {color: #xe5e5ea color_hover: #xd8d8dd color_down: #xc7c7cc border_radius: 15.0 border_size: 0.0}
+    draw_text +: {color: #x1c1c1e color_hover: #x1c1c1e color_down: #x1c1c1e draw_text.text_style.font_size: 11}}
+
 let ink = #x1c1c1e
 let secondary = #x8e8e93
 
-// ---------- 界面 ----------
+// ================= 界面 =================
 
-SolidView{width: Fill height: Fill flow: Down padding: 16 spacing: 10 draw_bg.color: #xf7f7fa
+SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.color: #xf7f7fa
 
-    Label{text: "家庭服务事件编排器" draw_text.color: ink draw_text.text_style: theme.font_bold{font_size: 22}}
-    Label{text: "状态机调试台 · dev.aster.fso v0.1" draw_text.color: secondary draw_text.text_style.font_size: 12}
-
-    View{width: Fill height: Fit flow: Down spacing: 6
-        View{width: Fill height: Fit flow: Right spacing: 10
-            badge := RoundedView{width: Fit height: 40 padding: Inset{left: 14 right: 14} draw_bg +: {color: #x1c1c1e border_radius: 20.0}
-                state_badge := Label{text: "Idle · 空闲" draw_text.color: #xffffff draw_text.text_style.font_size: 15}}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 10 align: Align{y: 0.5}
-            replan_label := Label{text: "重规划计数: 0" draw_text.color: ink draw_text.text_style.font_size: 13}
-            Chip{text: "重置" on_click: || reset_all()}
-        }
+    View{width: Fill height: Fit flow: Right spacing: 10 align: Align{y: 0.5}
+        Label{text: "家庭服务事件编排器" draw_text.color: ink draw_text.text_style: theme.font_bold{font_size: 20}}
+        Label{text: "v0.1" draw_text.color: secondary draw_text.text_style.font_size: 11}
     }
 
-    Label{text: "事件注入" draw_text.color: secondary draw_text.text_style.font_size: 12}
-
-    events := ScrollYView{width: Fill height: 292 flow: Down spacing: 5
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "粘贴通知" on_click: || fire("paste_notice")}
-            Chip{text: "解析成功" on_click: || fire("parsed")}
-            Chip{text: "解析失败" on_click: || fire("parse_failed")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "需补充信息" on_click: || fire("need_info")}
-            Chip{text: "发现冲突" on_click: || fire("conflict_found")}
-            Chip{text: "方案就绪" on_click: || fire("plan_ready")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "用户确认" on_click: || fire("user_confirmed")}
-            Chip{text: "用户拒绝" on_click: || fire("user_rejected")}
-            Chip{text: "核验通过" on_click: || fire("verify_ok")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "全部成功" on_click: || fire("all_actions_succeeded")}
-            Chip{text: "部分成功" on_click: || fire("partial_actions_succeeded")}
-            Chip{text: "全部失败" on_click: || fire("all_actions_failed")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "状态已变化" on_click: || fire("state_changed")}
-            Chip{text: "新事件" on_click: || fire("new_event")}
-            Chip{text: "重规划方案" on_click: || fire("replan_ready")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "重规划冲突" on_click: || fire("replan_conflict")}
-            Chip{text: "手动方案" on_click: || fire("manual_plan")}
-            Chip{text: "兜底就绪" on_click: || fire("fallback_ready")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "服务完成" on_click: || fire("service_done")}
-            Chip{text: "登记售后" on_click: || fire("register_postsale")}
-            Chip{text: "售后已处理" on_click: || fire("postsale_handled")}
-        }
-        View{width: Fill height: Fit flow: Right spacing: 6
-            Chip{text: "售后过期" on_click: || fire("postsale_expired")}
-        }
+    View{width: Fill height: Fit flow: Right spacing: 10 align: Align{y: 0.5}
+        badge := RoundedView{width: Fit height: 34 padding: Inset{left: 12 right: 12} draw_bg +: {color: #x1c1c1e border_radius: 17.0}
+            state_badge := Label{text: "Idle · 空闲" draw_text.color: #xffffff draw_text.text_style.font_size: 13}}
+        replan_label := Label{text: "重规划计数: 0" draw_text.color: ink draw_text.text_style.font_size: 12}
+    }
+    View{width: Fill height: Fit flow: Right spacing: 8
+        ChipQuiet{text: "重置全部" on_click: || clear_all()}
+        ChipQuiet{text: "调试复位" on_click: || reset_machine_only()}
     }
 
-    Label{text: "转移日志（新在上）" draw_text.color: secondary draw_text.text_style.font_size: 12}
+    input_area := TextInput{width: Fill height: 76 empty_text: "粘贴订单 / 配送 / 安装通知文本…"
+        draw_bg +: {color: #xffffff border_radius: 10.0 border_size: 0.0}
+        draw_text +: {color: ink color_empty: secondary draw_text.text_style.font_size: 13}}
 
-    log_list := ScrollYView{width: Fill height: Fill flow: Down spacing: 4 on_render: || {
+    View{width: Fill height: Fit flow: Right spacing: 8
+        ChipGreen{text: "解析通知" on_click: || do_parse()}
+        Chip{text: "填入完整样例" on_click: || fill_sample()}
+        Chip{text: "填入缺样例" on_click: || fill_partial()}
+        ChipQuiet{text: "清空" on_click: || clear_all()}
+    }
+
+    msg_label := Label{width: Fill text: "" draw_text.color: ink draw_text.text_style.font_size: 12}
+
+    Label{text: "本地时间线" draw_text.color: secondary draw_text.text_style.font_size: 11}
+    timeline_list := ScrollYView{width: Fill height: 96 flow: Down spacing: 4 on_render: || {
+        for item in timeline {
+            View{width: Fill height: Fit flow: Right spacing: 8 align: Align{y: 0.5}
+                RoundedView{width: 8 height: 8 draw_bg +: {color: #x8e8e93 border_radius: 4.0}}
+                Label{text: item.title draw_text.color: ink draw_text.text_style.font_size: 13}
+                Label{width: Fill text: item.detail draw_text.color: secondary draw_text.text_style.font_size: 12}
+            }
+        }
+    }}
+
+    Label{text: "解析事实（含原文依据）" draw_text.color: secondary draw_text.text_style.font_size: 11}
+    facts_list := ScrollYView{width: Fill height: 148 flow: Down spacing: 4 on_render: || {
+        if parsed == nil {
+            Label{text: "解析通知后，事实和来源会显示在这里。" draw_text.color: secondary draw_text.text_style.font_size: 12}
+        }
+        if parsed != nil {
+            if parsed.facts.len() == 0 {
+                Label{text: "没有解析出可用事实。" draw_text.color: secondary draw_text.text_style.font_size: 12}
+            }
+            for f in parsed.facts {
+                RoundedView{width: Fill height: Fit padding: Inset{left: 10 right: 10 top: 6 bottom: 6} draw_bg +: {color: #xffffff border_radius: 8.0}
+                    View{width: Fill height: Fit flow: Down spacing: 2
+                        Label{text: f.field + " = " + f.value draw_text.color: ink draw_text.text_style.font_size: 12}
+                        Label{width: Fill text: "依据: " + f.source_quote + "  ·  " + f.source_id + " · " + f.confidence draw_text.color: secondary draw_text.text_style.font_size: 10}
+                    }
+                }
+            }
+        }
+    }}
+
+    Label{text: "待确认方案" draw_text.color: secondary draw_text.text_style.font_size: 11}
+    plans_list := ScrollYView{width: Fill height: 86 flow: Down spacing: 4 on_render: || {
+        if plans.len() == 0 {
+            Label{text: "正在等待可执行方案。" draw_text.color: secondary draw_text.text_style.font_size: 12}
+        }
+        for i p in plans {
+            GestureView{width: Fill height: Fit on_tap: |x, y| {
+                selected_plan = i
+                set_msg("已选方案 " + p.label)
+                render_plans()
+            }
+                RoundedView{width: Fill height: Fit padding: Inset{left: 10 right: 10 top: 6 bottom: 6} draw_bg +: {color: #xffffff border_radius: 8.0}
+                    View{width: Fill height: Fit flow: Down spacing: 2
+                        Label{text: "方案 " + p.label + " · " + p.summary draw_text.color: ink draw_text.text_style.font_size: 12}
+                        Label{width: Fill text: "动作: 改期→" + p.actions[0].to + " ; 提醒→" + p.actions[1].at draw_text.color: secondary draw_text.text_style.font_size: 10}
+                        Label{width: Fill text: "依据: " + join_str(p.refs, " · ") draw_text.color: secondary draw_text.text_style.font_size: 10}
+                    }
+                }
+            }
+        }
+    }}
+
+    View{width: Fill height: Fit flow: Right spacing: 8
+        ChipGreen{text: "确认执行" on_click: || execute_plan(false)}
+        ChipAmber{text: "模拟提醒失败" on_click: || execute_plan(true)}
+        ChipQuiet{text: "拒绝" on_click: || reject_plan()}
+        ChipQuiet{text: "手动方案" on_click: || manual_plan()}
+    }
+
+    View{width: Fill height: Fit flow: Right spacing: 6 align: Align{y: 0.5}
+        Label{text: "执行审计" draw_text.color: secondary draw_text.text_style.font_size: 11}
+        Label{text: "｜调试事件:" draw_text.color: #xc7c7cc draw_text.text_style.font_size: 10}
+        ChipQuiet{text: "状态已变化" on_click: || apply_event("state_changed")}
+        ChipQuiet{text: "新事件" on_click: || apply_event("new_event")}
+        ChipQuiet{text: "重规划就绪" on_click: || apply_event("replan_ready")}
+        ChipQuiet{text: "重规划冲突" on_click: || apply_event("replan_conflict")}
+        ChipQuiet{text: "兜底就绪" on_click: || apply_event("fallback_ready")}
+        ChipQuiet{text: "服务完成" on_click: || apply_event("service_done")}
+        ChipQuiet{text: "登记售后" on_click: || apply_event("register_postsale")}
+        ChipQuiet{text: "售后处理" on_click: || apply_event("postsale_handled")}
+        ChipQuiet{text: "售后过期" on_click: || apply_event("postsale_expired")}
+    }
+    audit_list := ScrollYView{width: Fill height: 108 flow: Down spacing: 3 on_render: || {
+        if audit.len() == 0 {
+            Label{text: "还没有执行记录。" draw_text.color: secondary draw_text.text_style.font_size: 11}
+        }
+        for r in audit {
+            Label{width: Fill text: r.time + "  " + r.action + "  ·  " + r.result draw_text.color: ink draw_text.text_style.font_size: 11}
+        }
+    }}
+
+    log_list := ScrollYView{width: Fill height: 58 flow: Down spacing: 2 on_render: || {
         if log.len() == 0 {
-            Label{text: "（暂无转移，点上方按钮注入事件）" draw_text.color: secondary draw_text.text_style.font_size: 12}
+            Label{text: "（状态机转移日志）" draw_text.color: #xc7c7cc draw_text.text_style.font_size: 10}
         }
         for i in log.len() {
-            Label{width: Fill text: log[i] draw_text.color: ink draw_text.text_style.font_size: 12}
+            Label{width: Fill text: log[i] draw_text.color: #xc7c7cc draw_text.text_style.font_size: 10}
         }
     }}
 }

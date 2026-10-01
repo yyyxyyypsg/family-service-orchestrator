@@ -1,18 +1,18 @@
 {
   "schema": 1,
-  "subtitle": "Quick notes that stay on your phone",
-  "description": "A minimal OctoSense script app: type a note, keep it, tap it to remove it. Replace this with what your app does and who it helps.",
-  "category": "productivity",
-  "keywords": ["notes", "example"],
-  "screenshots": ["screenshots/01-main.png"],
+  "subtitle": "配送延期不慌：解析通知、给出可确认的改期方案",
+  "description": "家庭服务事件编排器：粘贴空调配送/安装通知，应用解析出带原文依据的事实（订单号、配送日期、安装时间、地址），识别配送延期与时间冲突，给出可确认的改期与复查提醒方案。确认后更新本地服务时间线、登记售后复查并记录审计；支持部分成功重试、重复操作拦截、重规划与规则兜底。纯本地规则引擎，不连接任何外部平台，不依赖 AI 服务，所有事实均可回溯到原文。",
+  "category": "shopping",
+  "keywords": ["配送", "安装", "改期", "时间线", "审计", "家庭服务"],
+  "screenshots": ["screenshots/01-main.png", "screenshots/02-executed.png", "screenshots/03-partial.png"],
   "icon": "assets/icon.svg",
-  "platforms": ["android"],
+  "platforms": ["windows"],
   "publisher": {
     "name": "Replace with your publisher name",
     "support": "https://example.com/support",
     "privacy_policy_url": "https://example.com/privacy"
   },
-  "release_notes": "First version.",
+  "release_notes": "0.1.0 初赛版本：17 状态机、通知解析、防编造事实卡、方案确认执行、幂等审计、失败重试。",
   "age_rating": "all",
   "license": "Apache-2.0"
 }
