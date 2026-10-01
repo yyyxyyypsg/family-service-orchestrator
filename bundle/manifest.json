@@ -1,12 +1,27 @@
 {
+  "agent": null,
   "capabilities": [
     "storage"
   ],
+  "compute": {
+    "instruction_budget": null,
+    "memory_bytes": null
+  },
   "id": "dev.aster.fso",
   "integrity": {
-    "bundle_blake3": "b4a43e877622f9c29e131d2df6523fd1165a00155dd1d0ffe945ab81d31a8a4b"
+    "bundle_blake3": "b4a43e877622f9c29e131d2df6523fd1165a00155dd1d0ffe945ab81d31a8a4b",
+    "signature": {
+      "key_id": "yyyxyyypsg",
+      "value": "956828930e2292853134793b198adbc6152b8f73395888dc9f5e10ad93c8b5436270719e08923cc8d157dda8fd0877072859bdf5b5007490eff86f6b65371801"
+    }
   },
   "name": "家庭服务事件编排器",
+  "network": {
+    "hosts": []
+  },
   "schema": 1,
+  "storage": {
+    "max_bytes": null
+  },
   "version": "0.1.0"
 }
