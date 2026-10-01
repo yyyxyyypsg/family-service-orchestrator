@@ -15,7 +15,7 @@
 3. 重规划封顶：…→state_changed⇒Replan(rc1)→replan_conflict⇒Replan(rc2)→replan_conflict⇒Unstable(rc3)→manual_plan⇒AwaitingConfirm(rc0)
 4. 补充信息：paste_notice→need_info→parsed ⇒ `Parsing`；need_info→parse_failed ⇒ `ParseFailed`
 5. 非法转移：Idle+user_confirmed ⇒ 拒绝并记录，状态不变
-6. 售后：…→service_done⇒Completed→register_postsale⇒PostSale→postsale_handled⇒Completed→postsale_expired⇒Idle
+6. 售后有效路径：…→service_done⇒Completed→register_postsale⇒PostSale→postsale_expired⇒Idle；另验证 PostSale→postsale_handled⇒Completed 后直接 postsale_expired 被拒绝。
 7. Following+new_event 二轮后 replan_conflict ⇒ Unstable(3)，manual_plan 清零
 
 **退回条件**：任一序列终态/计数与预期不符。
@@ -187,3 +187,41 @@ T1 全量重放暂不接受为 `verified`。T4 的消息标签增加高度后，
 4. **如实声明**：签名/提交仍未做（HUMAN）；签名时以当前工作树 bundle（含外环的 yyyxyyypsg 修正）为准，commit `10bc914`。
 
 **布局说明（给外环的备注）**：为让 22 事件全量常驻视口，各段高度压缩（输入 42/时间线 54/事实 72/方案 58/审计 42/日志 16）；另修复"消息文字长度改变页面高度导致底行被裁"的问题（消息区固定 28px）。若外环认为列表截图密度不可接受，可回退布局并改用独立 debug 面板方案，但需要新任务定义。
+
+---
+
+## OUTER REVIEW · T5 · 2026-10-01
+
+外环在验收时先发现 `drive.py` 的“包含匹配”会把 `核验通过` 错点到审计 Label（例如“本地复查提醒已创建，核验通过。”），导致 S1 停在 `Verify`。已将驱动器改为“精确 Button 匹配优先，包含匹配兜底”；这是测试驱动修正，不改变应用语义。
+
+独立启动真实 `card-host` 后，`/snap` 实测 31 个按钮，其中 22 个事件注入按钮、3 个执行按钮、4 个输入按钮以及重置/复位；T5 点名的调试事件均可见可点，坐标全部在 412×892 视口内。
+
+使用修正后的驱动器逐条重放：
+
+- S1：`Following · rc=0`；
+- S2：`Partial → AwaitingConfirm`；
+- S3：`Replan(1) → Replan(2) → Unstable(3) → manual_plan → AwaitingConfirm(rc=0)`；
+- S4：`NeedInfo → Parsing` 以及 `NeedInfo → ParseFailed`；
+- S5：`Idle + user_confirmed` 被拒绝，状态保持 `Idle`；
+- S6 有效路径：`Completed → PostSale → postsale_expired → Idle`；`postsale_handled → Completed` 后直接过期被拒绝；
+- S7：二轮事件得到 `Replan(1) → AwaitingConfirm(1) → Following(1) → Replan(2) → Unstable(3) → AwaitingConfirm(0)`。
+
+随后重跑 R1–R4，重启恢复 `Following`；`octo check` 和 `octo doctor` 均通过，card-host 日志没有 `[E]`、panic、refused 或 Splash 解析错误。
+
+**T5 裁定：`verified`；T1 同步升级为 `verified`。** T1 的售后验收已按真实状态机修正为有效路径，并单独保留非法直接过期检查。
+
+当前签名输入必须是工作树中的 bundle 和 `drive.py`，不能使用内环报告中的旧提交号；listing 的 `yyyxyyypsg` 修正和驱动器精确匹配修正都在旧提交之后。
+
+**非阻塞视觉记录**：为容纳全量调试台，事实卡和方案卡的可视高度被压缩，但它们仍在各自 ScrollYView 中可滚动查看；主流程按钮没有被调试区遮挡。如需面向评委的单屏完整展示，可另开 T6 做截图布局优化，不影响当前功能验收。
+
+---
+
+## 内环备注 · 2026-10-01 · HUMAN 步骤材料包已备齐
+
+外环宣告"只剩 HUMAN 步骤"后，内环补齐了其中唯一一件可代办事项：
+
+- `hub scan bundle --packet build/review.json` 已生成审核包（当前工作树 bundle）；
+- `build/REVIEW-ANSWERS.md`：七问已诚实作答（第 7 问建议 human-review，理由=调试控制台属开发工具，商店上架时建议隐藏或声明——黑客松场景保留）；
+- `build/HUMAN-RUNBOOK.md`：keygen → sign-manifest → check --publisher-key → commit+tag → push → issue 模板，全部带实际路径；附初赛 8 项清单对照（视频和成员名单是仅剩的两个 ✗，均属人环）。
+
+内环不执行 keygen/sign/tag/push/issue——等人环 go。

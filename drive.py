@@ -25,12 +25,18 @@ def snap(port):
 
 
 def find(port, text):
-    for w in snap(port)["s"]:
-        t = w.get("t")
-        if t and text in t and w.get("ty") in ("Button", "DesktopButton", "Label", "View"):
-            x, y, ww, hh = w["r"]
-            if ww > 0 and hh > 0 and w.get("enabled", True):
-                return (int(x + ww / 2), int(y + hh / 2), t)
+    widgets = snap(port)["s"]
+    # Prefer the exact Button label.  Substring-first matching can click an
+    # audit Label such as “提醒已创建，核验通过” instead of the “核验通过” chip.
+    for exact_button in (True, False):
+        for w in widgets:
+            t = w.get("t")
+            is_button = w.get("ty") in ("Button", "DesktopButton")
+            matches = t == text if exact_button else (t and text in t)
+            if t and matches and (is_button if exact_button else w.get("ty") in ("Button", "DesktopButton", "Label", "View")):
+                x, y, ww, hh = w["r"]
+                if ww > 0 and hh > 0 and w.get("enabled", True):
+                    return (int(x + ww / 2), int(y + hh / 2), t)
     return None
 
 
