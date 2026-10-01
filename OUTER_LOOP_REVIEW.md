@@ -23,3 +23,89 @@
 ---
 
 （内环 ACK 追加在对应任务下方）
+
+---
+
+## ACK T1 · 2026-10-01（内环）
+
+**完成**：17 状态 / 22 事件转移表逐行移植进 `bundle/main.splash`（`transition()`），调试台 UI（事件注入按钮 + 状态徽章 + 转移日志）。
+
+**验证证据**（远程桥 drive.py，seq 逐事件点击后读 `state_badge`/`replan_label`）：
+1. happy：粘贴通知→解析成功→发现冲突→方案就绪→用户确认→全部成功→核验通过 ⇒ `Following · 跟进中 | rc=0` ✓
+2. partial：…部分成功 ⇒ `Partial`；Partial+方案就绪 ⇒ `AwaitingConfirm` ✓
+3. 重规划封顶：状态已变化⇒Replan(rc1)→重规划冲突⇒Replan(rc2)→重规划冲突⇒Unstable(rc3)→手动方案⇒AwaitingConfirm(rc0) ✓
+4. 补充信息：粘贴通知→需补充信息→解析成功 ⇒ `Parsing`；→解析失败 ⇒ `ParseFailed` ✓
+5. 非法转移：Idle+用户确认 ⇒ 状态不变 + 日志"✗ 非法转移" ✓
+6. 售后：…服务完成⇒Completed→登记售后⇒PostSale→售后过期⇒Idle ✓（注：Completed 态下售后过期被正确拒绝）
+7. 二轮重规划：Following+新事件⇒Replan(rc1)→…→重规划冲突⇒Unstable(rc3) ✓（manual 清零由第 3 条覆盖）
+提交 c4e5963。截图 debug-t1.png/debug-t1b.png/debug-t1c.png 已人工查验（中文渲染正常）。
+
+## ACK T2+T3 · 2026-10-01（内环）
+
+**完成**：parser.js（归一化/带依据捕获/方案校验）、store.js（时间线/幂等审计/结算/合并/fs 持久化）、app.js 全流程 UI 一次移植。`octo check` ⇒ **`dev.aster.fso 0.1.0 — PASSED`**（仅未签名警告 + 发布者占位提示，均为 HUMAN 节点）。
+
+**验证证据**：
+- 探针：normalize_date("9月28日")=2026-09-28、normalize_time("下午3点")=15:00、"09:05"=09:05 —— 与 parser.test.js 期望一致
+- 完整样例解析：order_id=AC-20260927 / delivery_date=2026-09-28 / installation_time=2026-09-27T15:00:00+08:00，全部带 source_quote；状态走 Conflict→AwaitingConfirm ✓
+- 确认执行：Following；jail state.json 数据级核验——时间线 6 项（installation done 2026-09-28 15:00、warranty done 已登记复查）、审计含幂等拦截 warn 行 ✓
+- 模拟提醒失败：Partial + 精确文案 + install done/warranty pending + last_action_key 不记录 ✓；重试仅补提醒 ⇒ Following ✓
+- 拒绝⇒Idle ✓；缺样例⇒NeedInfo→补充合并⇒AwaitingConfirm ✓；乱文本⇒ParseFailed ✓
+- 重启恢复：state.json 还原 machine/timeline/audit ✓
+- 修复记录：保留字 `ok` 作字段名、`const` 非关键字、captures[0]=整体匹配的整体偏移、对象动态键缺失即错、跨 shell 层转义（详见 git log）
+- 3 张真实截图（解析后/执行后/部分成功）已人工查验
+提交 ada388b。
+
+**留给外环/人的**：
+- [ ] listing.json 发布者三字段（name/support/privacy URL）= HUMAN
+- [ ] hub keygen + sign-manifest = HUMAN
+- [x] 图标 assets/icon.svg 已是自定义 SVG（青绿色圆角方形 + 菱形）；仍需在最终 hub 预检中确认尺寸/格式。
+- [ ] UI 打磨（用户迭代顺序第③步）：成功/失败消息颜色区分、时间线状态点着色、布局密度
+
+---
+
+## OUTER ACK · 2026-10-01 · 独立复验
+
+**裁定：T2+T3 在课程工作区的完整版中通过，作为当前唯一施工基线。**
+
+复验对象：`apps/family-orchestrator/bundle`（`dev.aster.fso`），不是
+`codex项目文件/family-service-orchestrator-octoscript` 下的精简 scaffold。
+
+### 环境与门禁
+
+- `tools/setup-native.py --check --root <workspace>`：通过，锁定的 Octoscript-Makepad / Makepad / Octoscript 仓库可解析。
+- `tools/octo doctor`：通过，hub、card-host、cargo、script-app 模板均可用。
+- `tools/octo check apps/family-orchestrator/bundle`：`dev.aster.fso 0.1.0 — PASSED`。
+- 运行时由 `card-host.exe` 接纳，storage jail 创建成功；`card-host.log` 未发现 `[E]`、panic、refused 或 splash 解析错误。
+
+### 远程桥复验
+
+使用 `tools/octo run --hidden --detach` 在端口 8151/8152 启动，未使用 Computer Use：
+
+1. 完整通知 → `AwaitingConfirm`；确认 → `Following`。
+2. 同一方案重复确认 → 状态不变，`state.json` 审计写入“重复确认 / 未重复创建”。
+3. 模拟提醒失败 → `Partial`，改期已保留、提醒未伪称成功；重试 → `Following`。
+4. 退出后换端口重启 → `Following`、时间线、审计和幂等键恢复。
+5. 缺安装时间通知 → `NeedInfo`，缺失字段为 `installation_time`，没有生成执行方案。
+6. 真实截图已用外环目视检查：`bundle/screenshots/01-main.png`、`02-executed.png`、`03-partial.png`，另留有 `.octos/outer-t002-t003-needinfo.png`。
+
+**验证级别：** T2/T3 `verified`（Windows 本机、真实 card-host、远程桥、持久化数据）；T1 的全部 17 状态/22 事件仍以内环 ACK + 源码审阅为依据，尚未由外环逐条重放，因此标为 `partially-verified`，不得对外称为外环全量复验。
+
+### 基线与未决事项
+
+- 课程工作区完整版（`ada388b`）是唯一基线；精简 scaffold 不进入发布路径，避免两套实现漂移。
+- `octo check` 仍提示未签名；`listing.json` 的 publisher 三字段是模板占位。这些是 HUMAN 节点，外环不代签、不提交。
+- 图标不是模板占位，外环已检查 `assets/icon.svg`；仍需在最终 hub 预检中确认尺寸/格式。UI 颜色和布局打磨排在功能验收之后。
+
+## T4 · 发布前材料与视觉收尾（待内环）
+
+**目标**：只在完整版基线上收尾，不改变已验证的状态机/解析/存储语义。
+
+验收标准：
+
+1. `listing.json` 保留真实功能描述，删除 `example.com` / `Replace with` 占位；若缺少发布者三字段，停在 `blocked` 并列出需要人填写的字段，不擅自编造。
+2. `assets/icon.svg` 保持现有自定义 SVG，尺寸/格式通过 `hub check`；如需改图标必须附新截图并回归预检。
+3. UI 至少区分成功、警告、失败消息；时间线状态点能区分 pending/alert/done；不得引入新的 Splash 解析错误。
+4. 重跑 T2/T3 的最小回归：完整通知、部分失败重试、重复确认、重启恢复；截图和日志路径写回 ACK。
+5. ACK 必须声明 `verified` / `partially-verified` / `blocked`，不得把未签名或占位发布信息写成已完成。
+
+**HUMAN 节点保持不变**：keygen、sign-manifest、发布者字段最终确认、Submit issue 均需 Aster 明确 go。

@@ -252,6 +252,12 @@ fn in_list(arr, s) {
     return false
 }
 
+fn dot_color(s) {
+    if s == "done" { return #x34c759 }
+    if s == "alert" { return #xff9f0a }
+    return #x8e8e93
+}
+
 fn facts_has_field(facts, field) {
     for f in facts {
         if f.field == field { return true }
@@ -565,8 +571,13 @@ fn refresh_badge() {
     ui.replan_label.set_text("重规划计数: " + ("" + machine.replan))
 }
 
-fn set_msg(text) {
-    ui.msg_label.set_text(text)
+fn set_msg(kind, text) {
+    ui.msg_ok.set_visible(kind == "ok")
+    ui.msg_warn.set_visible(kind == "warn")
+    ui.msg_fail.set_visible(kind == "fail")
+    ui.msg_ok.set_text(text)
+    ui.msg_warn.set_text(text)
+    ui.msg_fail.set_text(text)
 }
 
 fn render_facts() { ui.facts_list.render() }
@@ -620,12 +631,12 @@ fn do_parse() {
     update_timeline_after_parse(parsed)
     if parsed.errors.len() > 0 and parsed.facts.len() == 0 {
         apply_event("parse_failed")
-        set_msg("解析失败：" + join_str(parsed.errors, "；"))
+        set_msg("fail", "解析失败：" + join_str(parsed.errors, "；"))
     } else if parsed.errors.len() > 0 or parsed.missing.len() > 0 {
         if machine.state != "NeedInfo" { apply_event("need_info") }
         let what = join_str(parsed.missing, "、")
         if what == "" { what = join_str(parsed.errors, "；") }
-        set_msg("需要补充：" + what)
+        set_msg("warn", "需要补充：" + what)
     } else {
         if machine.state == "NeedInfo" { apply_event("parsed") }
         apply_event("parsed")
@@ -640,7 +651,7 @@ fn do_parse() {
         }
         plans = build_plans(parsed)
         apply_event("plan_ready")
-        set_msg("已解析。配送日期不早于原安装日期，请确认新的安排。")
+        set_msg("ok", "已解析。配送日期不早于原安装日期，请确认新的安排。")
     }
     save_state()
     render_all()
@@ -662,7 +673,7 @@ fn execute_plan(simulate_failure) {
     }
     let validation = validate_plan({request_id: 1 options: [plan]}, parsed.facts, SCHEDULE)
     if !validation.valid {
-        set_msg("方案校验未通过：" + join_str(validation.errors, "；"))
+        set_msg("fail", "方案校验未通过：" + join_str(validation.errors, "；"))
         return
     }
     let is_retry = machine.state == "Partial"
@@ -682,14 +693,14 @@ fn execute_plan(simulate_failure) {
     let settlement = settle_actions(results)
     if settlement.status == "partial" {
         apply_event("partial_actions_succeeded")
-        set_msg("部分成功：改期已写入本地时间线，复查提醒尚未创建。可重试或选择规则兜底。")
+        set_msg("warn", "部分成功：改期已写入本地时间线，复查提醒尚未创建。可重试或选择规则兜底。")
     } else if settlement.status == "failed" {
         apply_event("all_actions_failed")
-        set_msg("执行失败：本地动作未完成，请选择规则兜底或重试。")
+        set_msg("fail", "执行失败：本地动作未完成，请选择规则兜底或重试。")
     } else {
         apply_event("all_actions_succeeded")
         apply_event("verify_ok")
-        set_msg("执行完成：本地时间线已更新，复查提醒已创建，结果已核验。")
+        set_msg("ok", "执行完成：本地时间线已更新，复查提醒已创建，结果已核验。")
     }
     save_state()
     render_all()
@@ -697,14 +708,14 @@ fn execute_plan(simulate_failure) {
 
 fn reject_plan() {
     apply_event("user_rejected")
-    set_msg("已放弃本次安排，可重新粘贴通知或手动整理。")
+    set_msg("warn", "已放弃本次安排，可重新粘贴通知或手动整理。")
     save_state()
     render_all()
 }
 
 fn manual_plan() {
     apply_event("manual_plan")
-    set_msg("已采用手动方案，重规划计数已清零。请确认执行。")
+    set_msg("ok", "已采用手动方案，重规划计数已清零。请确认执行。")
     save_state()
     render_all()
 }
@@ -729,7 +740,7 @@ fn clear_all() {
     last_action_key = ""
     machine = {state: "Idle" replan: 0}
     fs.remove("state.json")
-    set_msg("")
+    set_msg("none", "")
     refresh_badge()
     render_all()
 }
@@ -798,13 +809,17 @@ SolidView{width: Fill height: Fill flow: Down padding: 14 spacing: 8 draw_bg.col
         ChipQuiet{text: "清空" on_click: || clear_all()}
     }
 
-    msg_label := Label{width: Fill text: "" draw_text.color: ink draw_text.text_style.font_size: 12}
+    View{width: Fill height: Fit flow: Down
+        msg_ok := Label{width: Fill text: "" visible: false draw_text.color: #x1b7f3b draw_text.text_style.font_size: 12}
+        msg_warn := Label{width: Fill text: "" visible: false draw_text.color: #xb25e09 draw_text.text_style.font_size: 12}
+        msg_fail := Label{width: Fill text: "" visible: false draw_text.color: #xb00020 draw_text.text_style.font_size: 12}
+    }
 
     Label{text: "本地时间线" draw_text.color: secondary draw_text.text_style.font_size: 11}
     timeline_list := ScrollYView{width: Fill height: 96 flow: Down spacing: 4 on_render: || {
         for item in timeline {
             View{width: Fill height: Fit flow: Right spacing: 8 align: Align{y: 0.5}
-                RoundedView{width: 8 height: 8 draw_bg +: {color: #x8e8e93 border_radius: 4.0}}
+                RoundedView{width: 8 height: 8 draw_bg +: {color: dot_color(item.status) border_radius: 4.0}}
                 Label{text: item.title draw_text.color: ink draw_text.text_style.font_size: 13}
                 Label{width: Fill text: item.detail draw_text.color: secondary draw_text.text_style.font_size: 12}
             }

@@ -8,9 +8,9 @@
   "icon": "assets/icon.svg",
   "platforms": ["windows"],
   "publisher": {
-    "name": "Replace with your publisher name",
-    "support": "https://example.com/support",
-    "privacy_policy_url": "https://example.com/privacy"
+    "name": "agent aigc",
+    "support": "https://github.com/yyyxyxypsg",
+    "privacy_policy_url": "https://github.com/yyyxyxypsg"
   },
   "release_notes": "0.1.0 初赛版本：17 状态机、通知解析、防编造事实卡、方案确认执行、幂等审计、失败重试。",
   "age_rating": "all",
