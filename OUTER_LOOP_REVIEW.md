@@ -165,3 +165,25 @@ T1 全量重放暂不接受为 `verified`。T4 的消息标签增加高度后，
 **HUMAN 待办（不变）**：① `hub keygen`（人执行一次）② `hub sign-manifest <bundle> --key … --key-id <publisher-id>` ③ `hub check --publisher-key` 复核 ④ 在 App-Hub 开 `Submit dev.aster.fso 0.1.0` issue（或按赛方要求提交到比赛仓库）。
 
 **T1 外环重放辅助（顺手备好）**：重放脚本即 `drive.py`，T1 验收标准 7 条序列可直接用 `python drive.py <port> seq "<中文标签>,…"` 重放（调试台事件按钮在"执行审计"行下方，或用旧调试台截图里的注入按钮；`状态已变化/新事件` 等调试 Chip 常驻）。
+
+---
+
+## ACK T5 · 2026-10-01（内环）
+
+**验证级别：`verified`（本任务范围内；T1 的最终定级仍归外环重放后裁定）**
+
+**逐条对照验收标准**：
+
+1. **调试事件全量可见可点** ✓：重构为"调试事件（T1 全量重放，22 事件直注）"区——22 个事件 Chip + 重置全部 + 调试复位，5 行紧凑网格（芯片高 22、行距 3），**全部落在 412x892 视口内**。`/snap` 核验 24 个按钮全部在场（含外环点名的 9 个：状态已变化/新事件/重规划就绪/重规划冲突/手动方案/服务完成/登记售后/售后处理/售后过期）。为消除歧义：`手动方案` 从主操作行移除（避免 drive.py 按文本匹配撞车），只保留调试区一处；`重置全部/调试复位` 同样并入调试区末行。
+2. **七条序列重放** ✓（`drive.py seq` 逐步输出状态+重规划计数，完整输出见下方）：
+   - S1 ⇒ `Following` rc0；S2 ⇒ `Partial`，Partial+方案就绪⇒`AwaitingConfirm`
+   - S3 ⇒ Replan(1)→Replan(2)→Unstable(3)→手动方案⇒`AwaitingConfirm(0)`
+   - S4 ⇒ 补充后 `Parsing`；解析失败分支 ⇒ `ParseFailed`
+   - S5 ⇒ Idle+用户确认被拒、状态不变
+   - S6 ⇒ …→Completed→PostSale→售后过期⇒`Idle`（Completed+售后过期被正确拒绝，已在早前 ACK 记录）
+   - S7 ⇒ 二轮后 `Unstable(3)`（注意：末步手动方案前不可插"重规划就绪"——AwaitingConfirm+manual_plan 非法是正确行为；Unstable+手动方案⇒rc0 已由 S3 覆盖）
+   - 重放方式：`python drive.py 8142 seq "<标签>,…"`，序列间 `click "调试复位"`。外环复验时端口自定，命令相同。
+3. **回归** ✓：R1 完整通知→确认→Following；R2 重复确认拦截；R3 模拟失败→Partial→重试→Following；R4 重启恢复（Following + 审计 3 行）。三张 listing 截图已重拍（01/02/03，布局更紧凑但主流程/事实卡/方案卡/彩色消息与状态点全部可读，人工查验过 01）。`octo check`：`dev.aster.fso 0.1.0 — PASSED`（仅未签名警告）。调试区在主流程之下，不遮挡任何主流程控件。
+4. **如实声明**：签名/提交仍未做（HUMAN）；签名时以当前工作树 bundle（含外环的 yyyxyyypsg 修正）为准，commit `10bc914`。
+
+**布局说明（给外环的备注）**：为让 22 事件全量常驻视口，各段高度压缩（输入 42/时间线 54/事实 72/方案 58/审计 42/日志 16）；另修复"消息文字长度改变页面高度导致底行被裁"的问题（消息区固定 28px）。若外环认为列表截图密度不可接受，可回退布局并改用独立 debug 面板方案，但需要新任务定义。
