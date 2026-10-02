@@ -404,8 +404,8 @@ release_decision=0.1.1 accepted as signed follow-up; 0.1.0 submission remains un
 ## OUTER LOOP REVIEW · NATIVE HOST EXTENSION · 2026-10-02
 
 **裁定：`partially-verified`。** 原生 Rust/Makepad 轨道已实现并在独立窗口中验证；OctoSense Desktop
-宿主注册补丁已在本地分支生成、通过清单生成器和 Cargo metadata 检查。完整 Desktop 编译受本机缺少
-`octosense-app-contract` crates.io 缓存阻塞，不能宣称宿主二进制已编译通过。
+宿主注册补丁已在本地分支生成、通过清单生成器、Cargo metadata 和完整宿主 `cargo check`。
+宿主内实际窗口启动与 Octos peer 端到端冒烟仍未完成，因此暂不把整条宿主集成链标为 `verified`。
 
 ### 已完成
 
@@ -422,21 +422,24 @@ release_decision=0.1.1 accepted as signed follow-up; 0.1.0 submission remains un
   `native-apps.json`、shell feature、模块链接和 `agent.octos` 四项服务已注册。
 - `python tools/native_apps.py --check`：通过；`cargo metadata --no-deps`：确认
   `family-orchestrator-native` 路径、desktop feature 和 process-apps 关系完整。
+- 在 `OctoSense-Desktop` 工作区运行
+  `cargo check -p octosense --features app-family-orchestrator`：通过（Windows，4 分 14 秒，
+  仅已有依赖警告）。这证明宿主 feature、模块链接和原生 crate 已能在同一工作区完成编译检查。
 
 ### 边界与未决
 
 - 签名初赛 `bundle/`、`0.1.0`/`0.1.1` 和 issue #13 未改动；原生版本是并行宿主扩展轨道。
 - 原生 crate 的 Cargo 路径依赖假定官方工作区兄弟目录布局：`makepad/` 与
   `apps/family-orchestrator/` 同属一个工作区；宿主集成也按此布局注册。
-- 目前已验证模块契约和服务总线入口，未宣称完整 OctoSense Desktop 二进制已成功构建；需要在
-  能解析 `octosense-app-contract` 的网络/缓存环境中重跑 `cargo check -p octosense
-  --features app-family-orchestrator`，再做宿主内窗口和 Octos peer 实机复验。
+- 目前已验证模块契约、服务总线入口和宿主工作区编译检查；仍需启动带该 feature 的 Desktop，
+  通过 Makepad Studio/远程桥完成宿主内窗口复验，并确认宿主 Octos peer 的真实请求链路。
 
 ```text
 ACK(partially-verified): native host extension implemented.
 native_crate=verified(check,test,standalone remote smoke)
 host_registration=verified(native_apps.py --check,cargo metadata --no-deps)
-desktop_build=unverified(blocked by missing octosense-app-contract registry cache)
+desktop_build=verified(cargo check -p octosense --features app-family-orchestrator)
+host_ui_octos_peer_smoke=unverified
 signed_bundle=unchanged(0.1.1)
-next=run full Desktop build and Octos peer smoke in a prepared host workspace
+next=run host UI smoke and Octos peer end-to-end check
 ```

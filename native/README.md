@@ -20,7 +20,10 @@ local timeline and audit record after the host/user confirmation path.
 
 ## Local build
 
-The official checkouts must be siblings under one workspace:
+The official checkout layout is optional for the native crate itself because
+its Makepad dependencies are pinned git revisions. For an OctoSense host build,
+keep the app checkout beside the host repository so the host can patch those
+revisions to its reviewed `.sources/makepad` checkout:
 
 ```text
 <workspace>/makepad/
