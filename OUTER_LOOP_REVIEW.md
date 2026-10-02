@@ -448,3 +448,29 @@ host_ui_octos_peer_smoke=unverified
 signed_bundle=unchanged(0.1.1)
 next=run host UI smoke and Octos peer end-to-end check
 ```
+
+---
+
+## ACK native 第一阶段复验 · 2026-10-02（内环独立复验）
+
+**验证级别：外环 6 项声明全部复核为真；最后一关「真实 Octos peer 端到端」实际是两道缺口（见下）。**
+
+| 外环声明 | 内环复核 | 证据 |
+| --- | --- | --- |
+| cargo test 5/5 | ✓ 本机重跑通过 | 且 5 个测试都是实质断言：F-01 同款精确引用断言（`delay_quote_is_the_exact_input_phrase`）、缺字段不猜测、模块契约稳定、manifest 三工具、agent 不绕过状态机 |
+| 注册到 OctoSense Desktop | ✓ | OctoSense-Desktop 本地检出 2 个提交：`crates/ai-host/src/native_agents.rs` 的 `NATIVE_AGENTS` 增加一行（四方法授权，与 Rinx 同款——正是内环此前指出的缺口）；`native-apps.json` 条目（`implies: ["octos-core"]`、sandbox network:none、`shells: desktop opt-in`）；`crates/shell/src/native_apps.rs` + desktop feature `app-family-orchestrator` |
+| Desktop cargo check + 宿主启动冒烟 | ✓（产物佐证） | `octosense.exe` 165MB（今日 16:25 构建），`octos-core` 编译指纹存在；冒烟记录如实声明"只验证宿主加载和模块链接" |
+| 0.1.x 不变 | ✓ | 分支隔离，main 与 v0.1.x 标签未动 |
+
+**架构确认**：模块走的是 ADR 0002 §4 的「应用提供类型化工具」模型——`ai.rs` 声明三个工具（`current_state`=Read、`parse_notice`=Act、`confirm_plan`=**Destructive** 走宿主审批），octos agent 调工具，应用不调 agent、不自带内核、不开裸 socket。比"app 调 octos.turn.start"的形态更贴官方安全模型。
+
+**最后一关实际是两道缺口：**
+
+1. **内核二进制 + 配置（已知）**：octos-core 是 git 依赖（octos-org/octos @ `ae230ce0`），但内核 PROGRAM 需单独构建（演示原话「构建 octos main 的 octos 二进制」）；内核 home 的 `config.json` 需要模型 provider + key（**人环提供**，key 不进聊天和仓库）；启动时 `OCTOS_APP_CORE_BIN=<octos.exe>`。
+2. **工具发现路径（新发现，静态读码无法定论）**：我们的三个工具注册在 makepad AI services 总线（`ai.rs` ServiceManifest → `ai_port`），而 octos 内核 peer 的工具目录来自 `native-apps.json` 的 `tools_json` —— 我们的条目是 **`"[]"`**（terminal 的三个工具就是在这里声明的）。ai-host 里存在桥接痕迹（`contained.rs` 的 ServiceCall/ServiceManifest、`app-peers` 的 `peer/tools/register`），但模块 ServiceManifest 是否自动桥进内核 peer **只能靠 E2E 实测**。若 agent 看不到工具，修法是照 terminal 格式给我们的条目补 `agent.tools`（三个工具的 name/description/input_schema/risk），这已备好可直接搬。
+
+**建议下一片（T-native-2，约半天）**：
+1. clone octos @ ae230ce0，构建内核二进制
+2. 人环把模型 key 放进内核 config（位置由内环准备好）
+3. `OCTOS_APP_CORE_BIN=<octos.exe> MAKEPAD_HIDE_WINDOWS=1 MAKEPAD_REMOTE=8172 cargo run -p octosense --features app-family-orchestrator`，看内核是否起来、agent 是否看到工具
+4. 真实发一条「解析这条通知：…」，观察 parse_notice 工具调用落进模块（日志/审计），按缺口 2 的预判修
