@@ -7,7 +7,24 @@ GOSIM Agentic App 黑客松 2026 参赛作品 · 队伍 `agent aigc` · 赛道�
 确认后更新本地服务时间线、登记售后复查并记录审计。支持部分成功重试、重复操作幂等拦截、
 重规划封顶与规则兜底。
 
-**定位**：纯本地规则引擎。不联网、不调用设备 AI、不连接任何外部平台，所有事实可回溯到粘贴原文。
+**初赛定位**：纯本地规则引擎。不联网、不调用设备 AI、不连接任何外部平台，所有事实可回溯到粘贴原文。
+仓库同时提供一个并行的 **Rust/Makepad 原生宿主扩展**，用于接入 OctoSense 的宿主模块和
+Octos 代理通道；它不改动已经签名的 `bundle/` 提交物。
+
+## 原生宿主扩展
+
+`native/` 是可独立编译的 Rust crate，复用同一套解析器、状态机和事实引用规则：
+
+- 独立窗口：`family-orchestrator-native`，便于开发和录制演示；
+- 宿主模块：`FAMILY_ORCHESTRATOR_MODULE`，实现 `AppModule`，由 OctoSense shell
+  在隔离实例中承载；
+- AI 服务：`current_state`、`parse_notice`、`confirm_plan`，经 Makepad AI services
+  bus 暴露给宿主；
+- Octos 边界：应用不自启 kernel、不持有 host token、不直连 socket。宿主注册后，Octos
+  peer、审批和审计由 OctoSense shell 负责。
+
+构建与测试命令见 [`native/README.md`](native/README.md)。提交时仍以 `bundle/` 的签名版本
+为初赛基线；原生版本是后续宿主集成路线。
 
 ---
 
