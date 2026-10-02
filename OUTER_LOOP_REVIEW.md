@@ -398,3 +398,45 @@ release_decision=0.1.1 accepted as signed follow-up; 0.1.0 submission remains un
 ```
 
 此前 HANDOFF §7 的 `partially-verified` 状态已因 F-01 修复升级为 `verified`。JS 原型中的同名硬编码仍不属于规范 bundle 或已提交发布物，不影响本次发布包裁定。
+
+---
+
+## OUTER LOOP REVIEW · NATIVE HOST EXTENSION · 2026-10-02
+
+**裁定：`partially-verified`。** 原生 Rust/Makepad 轨道已实现并在独立窗口中验证；OctoSense Desktop
+宿主注册补丁已在本地分支生成、通过清单生成器和 Cargo metadata 检查。完整 Desktop 编译受本机缺少
+`octosense-app-contract` crates.io 缓存阻塞，不能宣称宿主二进制已编译通过。
+
+### 已完成
+
+- `native/` crate 提供 standalone binary 和 `AppModule`：
+  `family_orchestrator_native::FAMILY_ORCHESTRATOR_MODULE`。
+- 解析器、状态机和 AI service manifest 均为 Rust；`source_quote` 精确保留输入命中片段，
+  `order_id`、`delivery_date`、`installation_time` 缺失时进入 `missing`，不猜测。
+- 宿主服务工具：`current_state`、`parse_notice`、`confirm_plan`；破坏性确认仍经过宿主调用路径。
+- `cargo check --manifest-path native/Cargo.toml`：通过。
+- `cargo test --manifest-path native/Cargo.toml`：5/5 通过。
+- Windows Makepad 真实窗口远程冒烟：样例 → 解析 → `AwaitingConfirm` → 确认 → `Following`，
+  事实引用、确认禁用和审计摘要均可见；运行时无 `[E]`。
+- 本地 OctoSense Desktop 分支 `codex/family-orchestrator-native` 提交 `56edf1c`：
+  `native-apps.json`、shell feature、模块链接和 `agent.octos` 四项服务已注册。
+- `python tools/native_apps.py --check`：通过；`cargo metadata --no-deps`：确认
+  `family-orchestrator-native` 路径、desktop feature 和 process-apps 关系完整。
+
+### 边界与未决
+
+- 签名初赛 `bundle/`、`0.1.0`/`0.1.1` 和 issue #13 未改动；原生版本是并行宿主扩展轨道。
+- 原生 crate 的 Cargo 路径依赖假定官方工作区兄弟目录布局：`makepad/` 与
+  `apps/family-orchestrator/` 同属一个工作区；宿主集成也按此布局注册。
+- 目前已验证模块契约和服务总线入口，未宣称完整 OctoSense Desktop 二进制已成功构建；需要在
+  能解析 `octosense-app-contract` 的网络/缓存环境中重跑 `cargo check -p octosense
+  --features app-family-orchestrator`，再做宿主内窗口和 Octos peer 实机复验。
+
+```text
+ACK(partially-verified): native host extension implemented.
+native_crate=verified(check,test,standalone remote smoke)
+host_registration=verified(native_apps.py --check,cargo metadata --no-deps)
+desktop_build=unverified(blocked by missing octosense-app-contract registry cache)
+signed_bundle=unchanged(0.1.1)
+next=run full Desktop build and Octos peer smoke in a prepared host workspace
+```
