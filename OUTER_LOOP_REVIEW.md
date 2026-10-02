@@ -425,6 +425,10 @@ release_decision=0.1.1 accepted as signed follow-up; 0.1.0 submission remains un
 - 在 `OctoSense-Desktop` 工作区运行
   `cargo check -p octosense --features app-family-orchestrator`：通过（Windows，4 分 14 秒，
   仅已有依赖警告）。这证明宿主 feature、模块链接和原生 crate 已能在同一工作区完成编译检查。
+- 使用 `MAKEPAD_HIDE_WINDOWS=1 MAKEPAD_REMOTE=8172 cargo run -p octosense
+  --features app-family-orchestrator` 启动宿主：通过；远程桥建立，启动日志明确列出
+  `family-orchestrator`，随后通过 `/quit` 正常退出。当前机器未配置 `OCTOS_APP_CORE_BIN`，
+  因此这次启动只验证宿主加载和模块链接，不宣称真实 Octos peer 已完成请求。
 
 ### 边界与未决
 
@@ -439,6 +443,7 @@ ACK(partially-verified): native host extension implemented.
 native_crate=verified(check,test,standalone remote smoke)
 host_registration=verified(native_apps.py --check,cargo metadata --no-deps)
 desktop_build=verified(cargo check -p octosense --features app-family-orchestrator)
+host_startup=verified(hidden-window,remote-bridge,modules-linked)
 host_ui_octos_peer_smoke=unverified
 signed_bundle=unchanged(0.1.1)
 next=run host UI smoke and Octos peer end-to-end check
