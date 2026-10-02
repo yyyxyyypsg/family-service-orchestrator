@@ -23,7 +23,7 @@ impl AppModule for FamilyOrchestratorModule {
 
     fn create(&self, vm: &mut ScriptVm, _open: ValidatedOpen, handles: InstanceHandles) -> InstanceParts {
         let value = script_eval!(vm, {
-            use mod.prelude.widgets.*
+            use mod.widgets.*
             FamilyView {}
         });
         let root = WidgetRef::script_from_value(vm, value);

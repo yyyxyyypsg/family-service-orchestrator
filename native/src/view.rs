@@ -61,6 +61,8 @@ script_mod! {
 
 #[derive(Script, ScriptHook, Widget)]
 pub struct FamilyView {
+    #[source]
+    source: ScriptObjectRef,
     #[deref]
     view: View,
     #[rust]

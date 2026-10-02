@@ -467,10 +467,54 @@ next=run host UI smoke and Octos peer end-to-end check
 **最后一关实际是两道缺口：**
 
 1. **内核二进制 + 配置（已知）**：octos-core 是 git 依赖（octos-org/octos @ `ae230ce0`），但内核 PROGRAM 需单独构建（演示原话「构建 octos main 的 octos 二进制」）；内核 home 的 `config.json` 需要模型 provider + key（**人环提供**，key 不进聊天和仓库）；启动时 `OCTOS_APP_CORE_BIN=<octos.exe>`。
-2. **工具发现路径（新发现，静态读码无法定论）**：我们的三个工具注册在 makepad AI services 总线（`ai.rs` ServiceManifest → `ai_port`），而 octos 内核 peer 的工具目录来自 `native-apps.json` 的 `tools_json` —— 我们的条目是 **`"[]"`**（terminal 的三个工具就是在这里声明的）。ai-host 里存在桥接痕迹（`contained.rs` 的 ServiceCall/ServiceManifest、`app-peers` 的 `peer/tools/register`），但模块 ServiceManifest 是否自动桥进内核 peer **只能靠 E2E 实测**。若 agent 看不到工具，修法是照 terminal 格式给我们的条目补 `agent.tools`（三个工具的 name/description/input_schema/risk），这已备好可直接搬。
+2. **工具发现路径（已由源码审计解除）**：`native-apps.json` 的 `tools_json` 是进程式应用的静态目录；本模块属于宿主内进程模块，`ServiceManifest` 通过 `PaneLinks`/`AiBus` 动态注册到 peer。故当前条目的 `tools_json: "[]"` 不构成缺口，不应为了它重复声明工具。
 
 **建议下一片（T-native-2，约半天）**：
 1. clone octos @ ae230ce0，构建内核二进制
 2. 人环把模型 key 放进内核 config（位置由内环准备好）
 3. `OCTOS_APP_CORE_BIN=<octos.exe> MAKEPAD_HIDE_WINDOWS=1 MAKEPAD_REMOTE=8172 cargo run -p octosense --features app-family-orchestrator`，看内核是否起来、agent 是否看到工具
-4. 真实发一条「解析这条通知：…」，观察 parse_notice 工具调用落进模块（日志/审计），按缺口 2 的预判修
+4. 真实发一条「解析这条通知：…」，观察 parse_notice 工具调用落进模块（日志/审计）；若失败，优先排查内核二进制栈/配置，而不是修改 `tools_json`
+
+---
+
+## OUTER LOOP REVIEW · NATIVE HOST UI + PEER ATTEMPT · 2026-10-02
+
+**裁定：`partially-verified`。** 真实 OctoSense Desktop 已加载并渲染
+`family-orchestrator` 原生模块；本地业务流程在宿主窗口内完成了“样例 → 解析 →
+AwaitingConfirm → 确认 → Following”。但 Octos 子进程在首次建立 agent peer 时退出并报告
+`thread 'main' has overflowed its stack`，宿主随后重启内核；因此没有把模型回合或工具调用标为
+`verified`。
+
+### 独立复验证据
+
+- 修复宿主专用 Makepad 实例化：`FamilyViewBase` 类型别名 + `FamilyView` 的 `#[source]`
+  引用，使模块不再出现 `variable FamilyView not found in scope`。改动位于
+  `native/src/view.rs` 与 `native/src/module.rs`。
+- 重新运行 `cargo test --manifest-path native/Cargo.toml`：5/5 通过；
+  `cargo check --manifest-path native/Cargo.toml`：通过。
+- 重建 `OctoSense-Desktop` feature 并用 `OCTOS_APP_CORE_BIN` 指向真实
+  `octos.exe` 启动，远程桥 `8180`/`8181` 均可连接；窗口截图显示中文界面、事实面板、方案面板和
+  审计摘要均正常渲染。
+- `/snap` 数据复核：解析后状态为 `AwaitingConfirm · 方案已生成，请选择方案并确认执行`；
+  点击 `[566,483,449,42]` 的确认按钮后状态为
+  `Following · 已更新本地服务时间线并登记复查`。
+- 打开宿主 `Ask Family-orchestrator` 面板，确实出现首次 agent 授权页，列出
+  `octos.session.open/history`、`octos.turn.start/interrupt`；开发模式下进一步进入 assistant
+  面板，但显示 `No model provider is set up yet`，没有可执行的模型回合。
+- 宿主日志记录：`octos-core` 启动 `octos.exe serve --stdio` 后报告
+  `thread 'main' ... has overflowed its stack`，并被宿主重启；这是真实阻断证据，不是猜测。
+
+### 结论
+
+```text
+ACK(partially-verified): native host UI and local flow verified; Octos peer turn blocked.
+native_module_render=verified(host window, remote screenshot, no FamilyView scope error)
+local_flow=verified(AwaitingConfirm -> Following, host window)
+service_manifest_route=verified(static source audit: in-process PaneLinks/AiBus, tools_json not required)
+octos_peer_start=blocked(child octos.exe exits with main-thread stack overflow)
+model_turn=unverified(no provider configured; no tool call observed)
+signed_bundle=unchanged(0.1.1)
+next=fix/rebuild octos Windows stdio child with sufficient stack and configure a local provider, then rerun one parse_notice turn
+```
+
+本次没有读取、索取或修改任何模型 API key，也没有修改已签名的 0.1.1 发布包。
