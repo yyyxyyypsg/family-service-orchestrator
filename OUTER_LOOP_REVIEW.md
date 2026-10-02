@@ -518,3 +518,50 @@ next=fix/rebuild octos Windows stdio child with sufficient stack and configure a
 ```
 
 本次没有读取、索取或修改任何模型 API key，也没有修改已签名的 0.1.1 发布包。
+
+---
+
+## OUTER LOOP FOLLOW-UP · OCTOS PROFILE + TOOL DIRECTORY · 2026-10-02
+
+**裁定：`partially-verified`（peer 启动与工具目录已验证；真实模型回合仍未验证）。**
+
+本次先修正了上一节中已经过时的阻断描述。Windows 子进程使用
+`RUSTFLAGS=-C link-arg=/STACK:8388608`、`--no-default-features --features api`
+构建的本地 `octos.exe` 后，宿主不再出现 `main has overflowed its stack`。为避免接触任何真实密钥，
+在本机 Octos home 写入了仅指向 `127.0.0.1` 的 `_main` 测试 profile：
+
+```text
+C:\Users\lsy\.octosense\octos-home\.octos\profiles\_main.json
+base_url=http://127.0.0.1:18080/v1
+model=fixture-model
+```
+
+### 独立复验证据
+
+- `octosense.exe` 以 `OCTOS_APP_CORE_BIN` 指向上述本地 `octos.exe` 启动，远程桥 `8185` 建立，
+  `family-orchestrator` 仍在宿主模块列表中。
+- Octos 服务日志出现：
+  `ProfileRuntime: bootstrapped profile_id=_main provider=local model=fixture-model tool_count=49`。
+- 宿主日志随后出现：
+  `octos-core: kernel 1: the system agent's tool list is set (version 1)`。
+- 系统 agent 的 peer 预热完成；日志对多个系统 peer 报告 `agent is prepared (its peer is listed for the system agent)`。
+- 同一次启动中没有 stack overflow，也没有 `profile_unresolved`；旧的 `_main` 未配置问题已消失。
+- `native` crate 的 `cargo test` 仍为 5/5，已签名 0.1.1 bundle 未改动。
+
+### 仍未宣称的部分
+
+- 本机没有任何 `OPENAI_API_KEY`、MiniMax/Kimi 或其他模型密钥；没有请求、读取或保存真实密钥。
+- `fixture-model` 的本地 HTTP 端点没有提供真实模型回合，因此尚未观察到
+  `parse_notice`/`current_state`/`confirm_plan` 的真实 Octos tool call。
+- 这次验证证明了“宿主 → Octos 子进程 → `_main` profile → system tool list”的链路，
+  不等同于已证明模型能正确选择并执行家庭服务工具。
+
+```text
+ACK(partially-verified): octos peer bootstrap and tool directory verified.
+stack_overflow=resolved(local Windows build, 8 MiB process stack)
+profile=_main verified(local keyless fixture profile)
+system_tool_list=verified(tool list set, version 1; server tool_count=49)
+family_tool_call=unverified(no model key / no real turn)
+signed_bundle=unchanged(0.1.1)
+next=configure a model provider locally, then replay one assistant turn and inspect parse_notice audit
+```
