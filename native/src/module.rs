@@ -38,7 +38,15 @@ impl AppModule for FamilyOrchestratorModule {
         }
     }
 
-    fn capabilities(&self) -> &'static [&'static str] { &["storage"] }
+    fn capabilities(&self) -> &'static [&'static str] {
+        &[
+            "storage",
+            "octos.session.open",
+            "octos.session.history",
+            "octos.turn.start",
+            "octos.turn.interrupt",
+        ]
+    }
 }
 
 struct FamilyExecutor { root: WidgetRef }

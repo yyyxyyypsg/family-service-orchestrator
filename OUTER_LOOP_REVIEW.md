@@ -565,3 +565,62 @@ family_tool_call=unverified(no model key / no real turn)
 signed_bundle=unchanged(0.1.1)
 next=configure a model provider locally, then replay one assistant turn and inspect parse_notice audit
 ```
+
+---
+
+## OUTER LOOP REVIEW · NATIVE HOST PEER TOOL CALL · 2026-10-03
+
+**裁定：`verified`（本地 fixture provider；未使用真实模型密钥）。**
+
+本轮把上一节的未决项跑通了。OctoSense Desktop 以 `OCTOS_APP_CORE_BIN` 启动本地
+Windows `octos.exe`，内核使用 `127.0.0.1:18080` 的 OpenAI-compatible fixture profile。
+fixture 只按预设回合返回工具调用，不代表真实模型质量，也没有读取或保存任何 API key。
+
+### 独立证据
+
+- `cargo test --manifest-path apps/family-orchestrator/native/Cargo.toml`：5/5 通过；
+  五项均为实质断言（精确 `source_quote`、缺字段进入 `missing`、manifest 三工具、
+  状态机确认门）。
+- `PYTHONUTF8=1 python tools/native_apps.py --check`：通过；`native-apps.json` 与生成的
+  `crates/shell/src/native_apps.rs` 一致。Family 工具使用合法的
+  `family.orchestrator.*` 目录名，`confirm_plan` 保留 `confirm: app` 且不可自动批准。
+- `cargo build -p octosense --features app-family-orchestrator`：Windows 通过；宿主日志
+  记录模块链接、Octos 子进程启动、`family-orchestrator` peer link 打开，以及
+  `open_session` 返回 `Ok(... conversation=true ...)`。
+- fixture 请求记录显示系统 Agent 的 `peer_list` 找到动态 peer slug，随后
+  `peer_send_input` 成功送达家庭 peer。家庭 peer 的后续模型请求携带三个原生工具，
+  实际发出：
+
+  ```text
+  family_orchestrator_parse_notice
+  {"notice":"订单号：AC-1\n配送预计：9月28日\n安装预约：9月27日 15:00\n配送延迟"}
+  ```
+
+  宿主返回工具结果：
+
+  ```json
+  {"facts":4,"missing":0,"state":"AwaitingConfirm"}
+  ```
+
+  这证明了“Octos 子进程 → 系统 Agent peer_send_input → 家庭 peer → 原生模块工具
+  执行器 → 结果返回”的完整本地链路。
+
+### 代码收尾
+
+- 原生模块在 `PeerEvent::ToolCall` 中调用同一套 `ai::answer`，因此 peer 调用不能绕过
+  解析和确认状态机；工具结果已写入宿主日志，peer 事件后立即刷新界面。
+- 宿主生成器支持带连字符 app id 的规范化工具命名，并按最后一段匹配工具策略，保证
+  `family.orchestrator.confirm_plan` 仍命中 `confirm_plan` 的应用确认门。
+- 0.1.1 已签名 Hub bundle 未修改；本原生轨道继续作为独立宿主扩展。
+
+```text
+ACK(verified): native host peer tool call complete on local keyless fixture.
+native_tests=verified(5/5)
+host_registry=verified(native_apps.py --check, dotted tool schema, app confirmation policy)
+octos_bootstrap=verified(local octos.exe, _main fixture profile, peer session open)
+peer_routing=verified(peer_list -> peer_send_input -> family peer)
+family_tool_call=verified(family_orchestrator_parse_notice -> facts=4, missing=0, AwaitingConfirm)
+real_model_quality=unverified(no external model key; fixture is deterministic)
+signed_bundle=unchanged(0.1.1)
+next=optional real-provider smoke with a locally supplied key; keep key out of repo and chat
+```

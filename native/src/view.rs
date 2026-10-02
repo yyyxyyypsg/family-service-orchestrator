@@ -2,6 +2,8 @@
 //! only projects it into Makepad controls and forwards user actions.
 
 use crate::{engine, model::OrchestratorDocument};
+use makepad_ai_services::peer::{OctosPeer, PeerEvent};
+use makepad_ai_services::wire::{ServiceCall, ToolOutcome};
 use makepad_widgets::makepad_platform::storage::StorageHandle;
 use makepad_widgets::*;
 
@@ -69,6 +71,8 @@ pub struct FamilyView {
     doc: OrchestratorDocument,
     #[rust]
     storage: Option<StorageHandle>,
+    #[rust]
+    peer: Option<OctosPeer>,
 }
 
 impl FamilyView {
@@ -86,6 +90,57 @@ impl FamilyView {
 
     pub fn ai_answer(&mut self, call: &makepad_ai_services::wire::ServiceCall) -> makepad_ai_services::wire::ToolResult {
         crate::ai::answer(&mut self.doc, call)
+    }
+
+    /// Open the app's Octos peer once. The first session request causes the
+    /// host broker to prepare the peer and publish its slug to the system
+    /// agent; later tool calls arrive on the same in-process link.
+    fn ensure_peer(&mut self, cx: &mut Cx) {
+        if self.peer.is_none() {
+            let mut peer = OctosPeer::open(cx);
+            peer.open_session(None);
+            log!("family-orchestrator: opened OctosPeer and requested session");
+            self.peer = Some(peer);
+        }
+    }
+
+    fn drain_peer(&mut self, cx: &mut Cx, event: &Event) {
+        self.ensure_peer(cx);
+        let Some(mut peer) = self.peer.take() else { return };
+        for incoming in peer.handle_event(cx, event) {
+            match incoming {
+                PeerEvent::Reply { req_id, result } => {
+                    log!("family-orchestrator: peer request {req_id} reply: {:?}", result);
+                }
+                PeerEvent::ToolCall(call) => {
+                    let tool_name = call.name.clone();
+                    log!("family-orchestrator: peer tool call {}", tool_name);
+                    let call_id = call.call_id.clone();
+                    let service_call = ServiceCall {
+                        call_id: call_id.clone(),
+                        tool: call.name,
+                        args: call.args.to_json(),
+                    };
+                    let result = self.ai_answer(&service_call);
+                    let outcome = if result.outcome == ToolOutcome::Ok {
+                        let value = if result.data.is_empty() {
+                            makepad_strict_json::obj(vec![("text", makepad_strict_json::s(result.text))])
+                        } else {
+                            makepad_strict_json::parse(result.data.as_bytes()).unwrap_or_else(|_| {
+                                makepad_strict_json::obj(vec![("text", makepad_strict_json::s(result.text))])
+                            })
+                        };
+                        Ok(value)
+                    } else {
+                        Err(result.text)
+                    };
+                    log!("family-orchestrator: peer tool result {} -> {:?}", tool_name, outcome);
+                    let _ = peer.tool_result(&call_id, outcome);
+                }
+                _ => {}
+            }
+        }
+        self.peer = Some(peer);
     }
 
     fn refresh(&mut self, cx: &mut Cx) {
@@ -110,6 +165,8 @@ impl FamilyView {
 
 impl Widget for FamilyView {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        self.drain_peer(cx, event);
+        self.refresh(cx);
         self.view.handle_event(cx, event, scope);
         if let Event::Actions(actions) = event {
             if self.view.button(cx, ids!(input_panel.actions.sample)).clicked(actions) {

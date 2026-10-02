@@ -31,7 +31,11 @@ pub fn manifest() -> ServiceManifest {
 }
 
 pub fn answer(doc: &mut OrchestratorDocument, call: &ServiceCall) -> ToolResult {
-    match call.tool.as_str() {
+    // Peer-link tools are namespaced by the host (`family-orchestrator.*`),
+    // while the local AI bus manifest keeps the short names. Accept both
+    // forms so the same executor serves the native peer and in-process bus.
+    let tool = call.tool.rsplit('.').next().unwrap_or(call.tool.as_str());
+    match tool {
         "current_state" => {
             let data = json::obj(vec![
                 ("state", json::s(doc.state.label())),
