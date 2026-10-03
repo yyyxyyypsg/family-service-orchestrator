@@ -46,10 +46,14 @@ pub fn parse_notice(text: &str, source_id: &str) -> ParsedNotice {
     if let Some((value, quote)) = line_value(text, &["订单号", "订单编号"]) {
         push_fact(&mut facts, "order_id", value, quote, source_id);
     }
-    if let Some((value, quote)) = line_value(text, &["配送预计", "配送日期", "送货日期", "到货日期"]) {
+    if let Some((value, quote)) =
+        line_value(text, &["配送预计", "配送日期", "送货日期", "到货日期"])
+    {
         push_fact(&mut facts, "delivery_date", value, quote, source_id);
     }
-    if let Some((value, quote)) = line_value(text, &["安装预约", "预约安装", "安装时间", "上门安装"]) {
+    if let Some((value, quote)) =
+        line_value(text, &["安装预约", "预约安装", "安装时间", "上门安装"])
+    {
         push_fact(&mut facts, "installation_time", value, quote, source_id);
     }
     if let Some((value, quote)) = line_value(text, &["安装地址", "送货地址", "地址"]) {
@@ -59,9 +63,42 @@ pub fn parse_notice(text: &str, source_id: &str) -> ParsedNotice {
         push_fact(&mut facts, "status", value, quote, source_id);
     }
 
+    if let Some((value, quote)) = line_value(text, &["服务类型", "服务项目", "项目"]) {
+        push_fact(&mut facts, "service_type", value, quote, source_id);
+    } else {
+        for (keyword, value) in [
+            ("空调", "空调配送安装"),
+            ("家具", "家具配送组装"),
+            ("家政", "家政预约"),
+            ("维修", "家电维修"),
+        ] {
+            if text.contains(keyword) {
+                push_fact(
+                    &mut facts,
+                    "service_type",
+                    value.into(),
+                    keyword.into(),
+                    source_id,
+                );
+                break;
+            }
+        }
+    }
+
+    if let Some((value, quote)) = line_value(text, &["保修至", "保修期至", "保修到期", "质保至"])
+    {
+        push_fact(&mut facts, "warranty_expires", value, quote, source_id);
+    }
+
     for phrase in ["延期", "延迟", "推迟"] {
         if text.contains(phrase) {
-            push_fact(&mut facts, "delivery_status", "delayed".into(), phrase.into(), source_id);
+            push_fact(
+                &mut facts,
+                "delivery_status",
+                "delayed".into(),
+                phrase.into(),
+                source_id,
+            );
             break;
         }
     }
@@ -77,7 +114,11 @@ pub fn parse_notice(text: &str, source_id: &str) -> ParsedNotice {
         .map(|field| (*field).into())
         .collect();
 
-    ParsedNotice { facts, missing, errors }
+    ParsedNotice {
+        facts,
+        missing,
+        errors,
+    }
 }
 
 #[cfg(test)]
@@ -86,7 +127,11 @@ mod tests {
 
     #[test]
     fn delay_quote_is_the_exact_input_phrase() {
-        for (text, quote) in [("配送延迟", "延迟"), ("到货推迟", "推迟"), ("配送延期", "延期")] {
+        for (text, quote) in [
+            ("配送延迟", "延迟"),
+            ("到货推迟", "推迟"),
+            ("配送延期", "延期"),
+        ] {
             let parsed = parse_notice(text, "t");
             let fact = parsed.fact("delivery_status").expect("delay fact");
             assert_eq!(fact.source_quote, quote);
@@ -100,6 +145,23 @@ mod tests {
         assert!(parsed.fact("order_id").is_none());
         assert!(parsed.missing.iter().any(|field| field == "order_id"));
         assert!(parsed.missing.iter().any(|field| field == "delivery_date"));
-        assert!(parsed.missing.iter().any(|field| field == "installation_time"));
+        assert!(parsed
+            .missing
+            .iter()
+            .any(|field| field == "installation_time"));
+    }
+
+    #[test]
+    fn service_and_warranty_facts_keep_source_quotes() {
+        let parsed = parse_notice("服务类型：家电维修\n保修至：2027年10月2日", "t");
+        assert_eq!(parsed.fact("service_type").unwrap().value, "家电维修");
+        assert_eq!(
+            parsed.fact("service_type").unwrap().source_quote,
+            "服务类型：家电维修"
+        );
+        assert_eq!(
+            parsed.fact("warranty_expires").unwrap().source_quote,
+            "保修至：2027年10月2日"
+        );
     }
 }

@@ -633,3 +633,16 @@ next=optional real-provider smoke with a locally supplied key; keep key out of r
 视频来自 OctoSense Desktop 原生模块的 Makepad 远程桥真实截图，包含模块加载、通知输入、
 事实解析、方案确认、Following 状态，以及 Octos peer 工具调用结果说明页。原有
 `build/video/demo-dev.aster.fso.mp4` 仍保留为脚本应用/card-host 版本演示，不与本视频混用。
+# OUTER LOOP REVIEW — 家庭服务事件编排器（Splash 移植）
+
+## 2026-10-03 · T-native-3 / capability expansion · verified
+
+第一、二层扩展落在未签名的原生 Rust/Makepad 宿主版本，保持已提交的 `bundle/` 0.1.1 不变：
+
+- 服务案件增加 `service_type`、家具/家政/维修准备清单、保修字段与售后复查信息。
+- 后续配送/安装通知通过 `merge_notice` 合并到同一案件，替换同字段事实并重新生成方案。
+- 增加用户验收和服务问题记录；`Following → PostSale` 有明确审计记录。
+- Octos 工具从 3 个扩展为 8 个：`merge_notice`、`create_checklist`、`set_recheck`、`mark_accepted`、`record_service_issue` 已同步到宿主静态工具目录；验收工具保留 app confirmation 门槛。
+- 证据：`cargo test` 7/7；`cargo check -p octosense --features app-family-orchestrator` 通过；`tools/native_apps.py --check` 通过；Makepad remote bridge 实测“解析 → 确认 → 完成验收”，状态到 `PostSale`、清单变为 done、审计 3 条。
+
+验证级别：`verified`（本地 Rust、宿主编译、工具目录和远程 UI 均验证；真实外部物流/日历/支付系统仍不在本版本范围）。

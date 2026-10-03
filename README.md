@@ -23,6 +23,10 @@ Octos 代理通道；它不改动已经签名的 `bundle/` 提交物。
 - Octos 边界：应用不自启 kernel、不持有 host token、不直连 socket。宿主注册后，Octos
   peer、审批和审计由 OctoSense shell 负责。
 
+原生扩展还支持多类型服务案件（空调、家具、家政、维修）、准备清单、后续通知合并、用户验收、
+售后复查和问题记录。对应 Octos 工具为 `merge_notice`、`create_checklist`、`set_recheck`、
+`mark_accepted`、`record_service_issue`；这些动作仍只写入本地案件和审计，不声称修改外部平台。
+
 构建与测试命令见 [`native/README.md`](native/README.md)。提交时仍以 `bundle/` 的签名版本
 为初赛基线；原生版本是后续宿主集成路线。
 

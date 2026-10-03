@@ -48,14 +48,27 @@ script_mod! {
                 parse := Action{text: "解析通知"}
             }
         }
-        facts_panel := Panel{
+        facts_panel := Panel{flow: Down height: 82
             heading := Label{text: "事实（可回溯原文）" padding: 0 draw_text +: {color: mod.family_orchestrator.ink text_style: theme.font_bold{font_size: 13}}}
-            facts := Label{width: Fill height: Fit padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
+            facts := Label{width: Fill height: 54 padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
+        }
+        case_panel := Panel{
+            heading := Label{text: "服务案件" padding: 0 draw_text +: {color: mod.family_orchestrator.ink text_style: theme.font_bold{font_size: 13}}}
+            case := Label{width: Fill height: Fit padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
+            checklist := Label{width: Fill height: Fit padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
         }
         plan_panel := Panel{
             heading := Label{text: "方案" padding: 0 draw_text +: {color: mod.family_orchestrator.ink text_style: theme.font_bold{font_size: 13}}}
             plan := Label{width: Fill height: Fit padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
             confirm := Action{text: "确认执行" margin: Inset{top: 8}}
+        }
+        after_sale_panel := Panel{flow: Down height: 132
+            heading := Label{text: "售后与验收" padding: 0 draw_text +: {color: mod.family_orchestrator.ink text_style: theme.font_bold{font_size: 13}}}
+            status := Label{width: Fill height: Fit padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
+            actions := View{width: Fill height: 42 flow: Right spacing: 8 margin: Inset{top: 8}
+                accepted := Action{width: 120 text: "完成验收"}
+                issue := Action{width: 120 text: "记录售后问题"}
+            }
         }
         footer := Label{width: Fill height: Fit padding: 0 draw_text +: {color: mod.family_orchestrator.muted text_style: theme.font_regular{font_size: 11}}}
     }
@@ -88,7 +101,10 @@ impl FamilyView {
         engine::state_summary(&self.doc)
     }
 
-    pub fn ai_answer(&mut self, call: &makepad_ai_services::wire::ServiceCall) -> makepad_ai_services::wire::ToolResult {
+    pub fn ai_answer(
+        &mut self,
+        call: &makepad_ai_services::wire::ServiceCall,
+    ) -> makepad_ai_services::wire::ToolResult {
         crate::ai::answer(&mut self.doc, call)
     }
 
@@ -106,11 +122,16 @@ impl FamilyView {
 
     fn drain_peer(&mut self, cx: &mut Cx, event: &Event) {
         self.ensure_peer(cx);
-        let Some(mut peer) = self.peer.take() else { return };
+        let Some(mut peer) = self.peer.take() else {
+            return;
+        };
         for incoming in peer.handle_event(cx, event) {
             match incoming {
                 PeerEvent::Reply { req_id, result } => {
-                    log!("family-orchestrator: peer request {req_id} reply: {:?}", result);
+                    log!(
+                        "family-orchestrator: peer request {req_id} reply: {:?}",
+                        result
+                    );
                 }
                 PeerEvent::ToolCall(call) => {
                     let tool_name = call.name.clone();
@@ -124,17 +145,29 @@ impl FamilyView {
                     let result = self.ai_answer(&service_call);
                     let outcome = if result.outcome == ToolOutcome::Ok {
                         let value = if result.data.is_empty() {
-                            makepad_strict_json::obj(vec![("text", makepad_strict_json::s(result.text))])
+                            makepad_strict_json::obj(vec![(
+                                "text",
+                                makepad_strict_json::s(result.text),
+                            )])
                         } else {
-                            makepad_strict_json::parse(result.data.as_bytes()).unwrap_or_else(|_| {
-                                makepad_strict_json::obj(vec![("text", makepad_strict_json::s(result.text))])
-                            })
+                            makepad_strict_json::parse(result.data.as_bytes()).unwrap_or_else(
+                                |_| {
+                                    makepad_strict_json::obj(vec![(
+                                        "text",
+                                        makepad_strict_json::s(result.text),
+                                    )])
+                                },
+                            )
                         };
                         Ok(value)
                     } else {
                         Err(result.text)
                     };
-                    log!("family-orchestrator: peer tool result {} -> {:?}", tool_name, outcome);
+                    log!(
+                        "family-orchestrator: peer tool result {} -> {:?}",
+                        tool_name,
+                        outcome
+                    );
                     let _ = peer.tool_result(&call_id, outcome);
                 }
                 _ => {}
@@ -144,22 +177,113 @@ impl FamilyView {
     }
 
     fn refresh(&mut self, cx: &mut Cx) {
-        self.view.label(cx, ids!(header.state)).set_text(cx, &format!("{} · {}", self.doc.state.label(), self.doc.message));
+        self.view.label(cx, ids!(header.state)).set_text(
+            cx,
+            &format!("{} · {}", self.doc.state.label(), self.doc.message),
+        );
         let facts = if self.doc.parsed.facts.is_empty() {
-            if self.doc.parsed.missing.is_empty() { "尚未解析".to_string() } else { format!("缺少：{}", self.doc.parsed.missing.join("、")) }
+            if self.doc.parsed.missing.is_empty() {
+                "尚未解析".to_string()
+            } else {
+                format!("缺少：{}", self.doc.parsed.missing.join("、"))
+            }
         } else {
-            self.doc.parsed.facts.iter().map(|f| format!("{} = {} 〔{}〕", f.field, f.value, f.source_quote)).collect::<Vec<_>>().join("\n")
+            self.doc
+                .parsed
+                .facts
+                .iter()
+                .map(|f| format!("{} = {} 〔{}〕", f.field, f.value, f.source_quote))
+                .collect::<Vec<_>>()
+                .join("\n")
         };
-        self.view.label(cx, ids!(facts_panel.facts)).set_text(cx, &facts);
-        let plan = self.doc.plans.get(self.doc.selected_plan).map(|p| format!("{}\n{}", p.title, p.detail)).unwrap_or_else(|| "等待解析后生成方案".into());
-        self.view.label(cx, ids!(plan_panel.plan)).set_text(cx, &plan);
-        self.view.label(cx, ids!(footer)).set_text(cx, &format!("重规划 {} · 审计 {} 条", self.doc.replan_count, self.doc.audit.len()));
-        self.view.button(cx, ids!(plan_panel.confirm)).set_enabled(cx, matches!(self.doc.state, crate::model::ServiceState::AwaitingConfirm | crate::model::ServiceState::Partial));
+        self.view
+            .label(cx, ids!(facts_panel.facts))
+            .set_text(cx, &facts);
+        let plan = self
+            .doc
+            .plans
+            .get(self.doc.selected_plan)
+            .map(|p| format!("{}\n{}", p.title, p.detail))
+            .unwrap_or_else(|| "等待解析后生成方案".into());
+        self.view
+            .label(cx, ids!(plan_panel.plan))
+            .set_text(cx, &plan);
+        let checklist = self
+            .doc
+            .checklist
+            .iter()
+            .map(|item| {
+                format!(
+                    "{} {}",
+                    if item.status == "done" { "✓" } else { "○" },
+                    item.title
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.view.label(cx, ids!(case_panel.case)).set_text(
+            cx,
+            &format!(
+                "类型：{}\n保修：{}",
+                self.doc.service_type, self.doc.warranty.expires
+            ),
+        );
+        self.view
+            .label(cx, ids!(case_panel.checklist))
+            .set_text(cx, &format!("准备清单：\n{}", checklist));
+        self.view.label(cx, ids!(after_sale_panel.status)).set_text(
+            cx,
+            &format!(
+                "{}\n复查：{}{}",
+                self.doc.message,
+                self.doc.follow_up,
+                if self.doc.service_issue.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n问题：{}", self.doc.service_issue)
+                }
+            ),
+        );
+        self.view.label(cx, ids!(footer)).set_text(
+            cx,
+            &format!(
+                "重规划 {} · 审计 {} 条",
+                self.doc.replan_count,
+                self.doc.audit.len()
+            ),
+        );
+        self.view.button(cx, ids!(plan_panel.confirm)).set_enabled(
+            cx,
+            matches!(
+                self.doc.state,
+                crate::model::ServiceState::AwaitingConfirm | crate::model::ServiceState::Partial
+            ),
+        );
+        self.view
+            .button(cx, ids!(after_sale_panel.actions.accepted))
+            .set_enabled(
+                cx,
+                matches!(
+                    self.doc.state,
+                    crate::model::ServiceState::Following | crate::model::ServiceState::Completed
+                ),
+            );
+        self.view
+            .button(cx, ids!(after_sale_panel.actions.issue))
+            .set_enabled(
+                cx,
+                matches!(
+                    self.doc.state,
+                    crate::model::ServiceState::Following | crate::model::ServiceState::PostSale
+                ),
+            );
     }
 
     fn fill_sample(&mut self, cx: &mut Cx) {
         let sample = "订单号：AC-20261002\n配送预计：10月3日（配送延迟）\n安装预约：10月4日 15:00\n安装地址：深圳市南山区科苑路1号";
-        self.view.text_input(cx, ids!(input_panel.notice)).set_text(cx, sample);
+        self.view
+            .text_input(cx, ids!(input_panel.notice))
+            .set_text(cx, sample);
     }
 }
 
@@ -169,15 +293,41 @@ impl Widget for FamilyView {
         self.refresh(cx);
         self.view.handle_event(cx, event, scope);
         if let Event::Actions(actions) = event {
-            if self.view.button(cx, ids!(input_panel.actions.sample)).clicked(actions) {
+            if self
+                .view
+                .button(cx, ids!(input_panel.actions.sample))
+                .clicked(actions)
+            {
                 self.fill_sample(cx);
             }
-            if self.view.button(cx, ids!(input_panel.actions.parse)).clicked(actions) {
+            if self
+                .view
+                .button(cx, ids!(input_panel.actions.parse))
+                .clicked(actions)
+            {
                 self.doc.notice = self.view.text_input(cx, ids!(input_panel.notice)).text();
                 engine::parse_and_plan(&mut self.doc);
             }
-            if self.view.button(cx, ids!(plan_panel.confirm)).clicked(actions) {
+            if self
+                .view
+                .button(cx, ids!(plan_panel.confirm))
+                .clicked(actions)
+            {
                 engine::confirm(&mut self.doc);
+            }
+            if self
+                .view
+                .button(cx, ids!(after_sale_panel.actions.accepted))
+                .clicked(actions)
+            {
+                engine::mark_accepted(&mut self.doc);
+            }
+            if self
+                .view
+                .button(cx, ids!(after_sale_panel.actions.issue))
+                .clicked(actions)
+            {
+                engine::record_issue(&mut self.doc, "用户标记：需要服务方回访");
             }
             self.refresh(cx);
         }

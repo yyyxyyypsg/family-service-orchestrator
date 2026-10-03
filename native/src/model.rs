@@ -72,6 +72,18 @@ pub struct TimelineStep {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChecklistItem {
+    pub title: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WarrantyInfo {
+    pub expires: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AuditEntry {
     pub action: String,
     pub result: String,
@@ -80,12 +92,17 @@ pub struct AuditEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OrchestratorDocument {
     pub state: ServiceState,
+    pub service_type: String,
     pub notice: String,
     pub parsed: ParsedNotice,
     pub plans: Vec<Plan>,
     pub selected_plan: usize,
     pub replan_count: u8,
     pub timeline: Vec<TimelineStep>,
+    pub checklist: Vec<ChecklistItem>,
+    pub warranty: WarrantyInfo,
+    pub follow_up: String,
+    pub service_issue: String,
     pub audit: Vec<AuditEntry>,
     pub message: String,
 }
@@ -94,16 +111,50 @@ impl Default for OrchestratorDocument {
     fn default() -> Self {
         Self {
             state: ServiceState::Idle,
+            service_type: "空调配送安装".into(),
             notice: String::new(),
             parsed: ParsedNotice::default(),
             plans: Vec::new(),
             selected_plan: 0,
             replan_count: 0,
             timeline: vec![
-                TimelineStep { title: "配送".into(), status: "pending".into() },
-                TimelineStep { title: "安装预约".into(), status: "pending".into() },
-                TimelineStep { title: "售后复查".into(), status: "pending".into() },
+                TimelineStep {
+                    title: "配送".into(),
+                    status: "pending".into(),
+                },
+                TimelineStep {
+                    title: "安装预约".into(),
+                    status: "pending".into(),
+                },
+                TimelineStep {
+                    title: "用户验收".into(),
+                    status: "pending".into(),
+                },
+                TimelineStep {
+                    title: "售后复查".into(),
+                    status: "pending".into(),
+                },
             ],
+            checklist: vec![
+                ChecklistItem {
+                    title: "确认安装地址和入户条件".into(),
+                    status: "pending".into(),
+                },
+                ChecklistItem {
+                    title: "准备插座并清空安装区域".into(),
+                    status: "pending".into(),
+                },
+                ChecklistItem {
+                    title: "安装后完成通电验收".into(),
+                    status: "pending".into(),
+                },
+            ],
+            warranty: WarrantyInfo {
+                expires: "未登记".into(),
+                status: "unknown".into(),
+            },
+            follow_up: "安装完成后登记复查".into(),
+            service_issue: String::new(),
             audit: Vec::new(),
             message: "粘贴一条配送/安装通知开始".into(),
         }

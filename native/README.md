@@ -12,11 +12,13 @@ The crate exposes the same service in two forms:
   an OctoSense shell can host it in-process and register its typed tools on the
   Makepad AI services bus.
 
-The service manifest offers `current_state`, `parse_notice`, and
-`confirm_plan`. The parser is deterministic: missing order, delivery, or
-installation fields are reported as `missing`, and every extracted fact keeps
-the exact source quote. The destructive confirmation tool only applies the
-local timeline and audit record after the host/user confirmation path.
+The service manifest offers `current_state`, `parse_notice`, `confirm_plan`,
+`merge_notice`, `create_checklist`, `set_recheck`, `mark_accepted`, and
+`record_service_issue`. The parser is deterministic: missing order, delivery,
+or installation fields are reported as `missing`, and every extracted fact
+keeps the exact source quote. Later notices merge into the same service case
+and trigger a bounded local re-plan. Destructive tools only apply the local
+timeline and audit record after the host/user confirmation path.
 
 ## Local build
 
