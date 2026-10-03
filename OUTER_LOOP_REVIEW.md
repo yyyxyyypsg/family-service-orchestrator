@@ -624,3 +624,12 @@ real_model_quality=unverified(no external model key; fixture is deterministic)
 signed_bundle=unchanged(0.1.1)
 next=optional real-provider smoke with a locally supplied key; keep key out of repo and chat
 ```
+
+---
+
+## NATIVE DEMO VIDEO · 2026-10-03
+
+已录制原生宿主扩展专用演示视频：`build/video/demo-native-host-extension.mp4`。
+视频来自 OctoSense Desktop 原生模块的 Makepad 远程桥真实截图，包含模块加载、通知输入、
+事实解析、方案确认、Following 状态，以及 Octos peer 工具调用结果说明页。原有
+`build/video/demo-dev.aster.fso.mp4` 仍保留为脚本应用/card-host 版本演示，不与本视频混用。

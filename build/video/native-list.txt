@@ -1,0 +1,15 @@
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/00-title.png'
+duration 4
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/01-idle.png'
+duration 5
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/02-notice.png'
+duration 6
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/03-parsed.png'
+duration 8
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/05-peer.png'
+duration 6
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/04-following.png'
+duration 8
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/06-end.png'
+duration 4
+file 'C:/Users/lsy/Desktop/课程设计/agenticapp-hackathon/apps/family-orchestrator/build/video/native-frames/06-end.png'
