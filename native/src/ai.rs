@@ -17,6 +17,12 @@ pub fn manifest() -> ServiceManifest {
         Risk::Read,
     ))
     .with_tool(ToolDef::new(
+        "risk_assessment",
+        "Read the deterministic local risk and service completion summary.",
+        r#"{"type":"object","properties":{},"additionalProperties":false}"#,
+        Risk::Read,
+    ))
+    .with_tool(ToolDef::new(
         "parse_notice",
         "Parse user supplied notification text. Missing fields are returned instead of guessed.",
         r#"{"type":"object","properties":{"notice":{"type":"string","maxLength":8192}},"required":["notice"],"additionalProperties":false}"#,
@@ -27,6 +33,12 @@ pub fn manifest() -> ServiceManifest {
         "Apply the currently selected local plan. The app records an audit entry and refuses duplicates.",
         r#"{"type":"object","properties":{},"additionalProperties":false}"#,
         Risk::Destructive,
+    ))
+    .with_tool(ToolDef::new(
+        "select_next_plan",
+        "Cycle through the generated local plans before confirmation; selection does not execute it.",
+        r#"{"type":"object","properties":{},"additionalProperties":false}"#,
+        Risk::Act,
     ))
     .with_tool(ToolDef::new(
         "merge_notice",
@@ -74,6 +86,15 @@ pub fn answer(doc: &mut OrchestratorDocument, call: &ServiceCall) -> ToolResult 
             .to_json();
             ToolResult::ok(&call.call_id, engine::state_summary(doc), "").with_data(data)
         }
+        "risk_assessment" => {
+            let data = json::obj(vec![
+                ("risk", json::s(engine::risk_summary(doc))),
+                ("completion_percent", Value::Int(engine::completion_percent(doc) as i64)),
+                ("audit_count", Value::Int(doc.audit.len() as i64)),
+            ])
+            .to_json();
+            ToolResult::ok(&call.call_id, engine::risk_summary(doc), "").with_data(data)
+        }
         "parse_notice" => {
             let Ok(value) = json::parse(call.args.as_bytes()) else {
                 return ToolResult::refused(&call.call_id, "invalid JSON arguments");
@@ -94,6 +115,10 @@ pub fn answer(doc: &mut OrchestratorDocument, call: &ServiceCall) -> ToolResult 
         }
         "confirm_plan" => {
             engine::confirm(doc);
+            ToolResult::ok(&call.call_id, doc.message.clone(), "")
+        }
+        "select_next_plan" => {
+            engine::select_next_plan(doc);
             ToolResult::ok(&call.call_id, doc.message.clone(), "")
         }
         "merge_notice" => {
@@ -171,7 +196,7 @@ mod tests {
         let m = manifest();
         assert_eq!(m.id, "family_orchestrator");
         assert!(m.validate().is_ok());
-        assert_eq!(m.tools.len(), 8);
+        assert_eq!(m.tools.len(), 10);
     }
 
     #[test]
@@ -215,5 +240,41 @@ mod tests {
         let accepted = answer(&mut doc, &call("mark_accepted", "{}"));
         assert_eq!(accepted.outcome, ToolOutcome::Ok);
         assert_eq!(doc.state.label(), "PostSale");
+    }
+
+    #[test]
+    fn selecting_next_plan_is_safe_until_confirmation() {
+        let mut doc = OrchestratorDocument::default();
+        answer(
+            &mut doc,
+            &call(
+                "parse_notice",
+                r#"{"notice":"订单号：AC-2\n配送预计：10月6日\n安装预约：10月7日 09:00"}"#,
+            ),
+        );
+        assert_eq!(doc.selected_plan, 0);
+        answer(&mut doc, &call("select_next_plan", "{}"));
+        assert_eq!(doc.selected_plan, 1);
+        assert_eq!(doc.state.label(), "AwaitingConfirm");
+        assert_eq!(doc.audit.last().unwrap().action, "select_plan");
+    }
+
+    #[test]
+    fn risk_assessment_exposes_local_completion_and_missing_fields() {
+        let mut doc = OrchestratorDocument::default();
+        let result = answer(&mut doc, &call("risk_assessment", "{}"));
+        assert_eq!(result.outcome, ToolOutcome::Ok);
+        assert!(result.text.contains("低风险"));
+        assert!(result.data.contains("completion_percent"));
+
+        answer(
+            &mut doc,
+            &call(
+                "parse_notice",
+                r#"{"notice":"配送延迟，安装预约：10月6日 10:00"}"#,
+            ),
+        );
+        let result = answer(&mut doc, &call("risk_assessment", "{}"));
+        assert!(result.text.contains("待补充"));
     }
 }

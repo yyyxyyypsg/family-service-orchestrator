@@ -200,6 +200,24 @@ pub fn confirm(doc: &mut OrchestratorDocument) {
     }
 }
 
+/// Select the next generated plan before the user confirms execution.
+/// Selection is local and auditable; it never applies a plan by itself.
+pub fn select_next_plan(doc: &mut OrchestratorDocument) {
+    if doc.plans.is_empty() {
+        doc.audit.push(AuditEntry {
+            action: "select_plan".into(),
+            result: "no_plan_available".into(),
+        });
+        return;
+    }
+    doc.selected_plan = (doc.selected_plan + 1) % doc.plans.len();
+    doc.audit.push(AuditEntry {
+        action: "select_plan".into(),
+        result: format!("index={}", doc.selected_plan),
+    });
+    doc.message = format!("已切换到{}，等待确认", doc.plans[doc.selected_plan].title);
+}
+
 pub fn mark_accepted(doc: &mut OrchestratorDocument) {
     if !matches!(
         doc.state,
@@ -297,4 +315,41 @@ pub fn state_summary(doc: &OrchestratorDocument) -> String {
         doc.warranty.expires,
         doc.audit.len()
     )
+}
+
+/// A compact, deterministic risk label for the dashboard and assistant bus.
+/// It is derived only from the local case state; no model judgment is involved.
+pub fn risk_summary(doc: &OrchestratorDocument) -> String {
+    if doc.state == ServiceState::ParseFailed {
+        return "解析失败 · 请修正通知".into();
+    }
+    if !doc.parsed.missing.is_empty() {
+        return format!("待补充 · {} 项信息", doc.parsed.missing.len());
+    }
+    if !doc.service_issue.is_empty() {
+        return "售后问题 · 待回访".into();
+    }
+    if doc.state == ServiceState::Partial {
+        return "部分成功 · 待重试".into();
+    }
+    if doc.replan_count > 0 {
+        return "有变更 · 需要确认".into();
+    }
+    match doc.state {
+        ServiceState::Following | ServiceState::Completed | ServiceState::PostSale => {
+            "运行正常 · 已核验".into()
+        }
+        ServiceState::AwaitingConfirm => "待确认 · 尚未执行".into(),
+        _ => "低风险 · 等待通知".into(),
+    }
+}
+
+pub fn completion_percent(doc: &OrchestratorDocument) -> u8 {
+    let total = doc.timeline.len().max(1);
+    let done = doc
+        .timeline
+        .iter()
+        .filter(|step| step.status == "done")
+        .count();
+    ((done * 100) / total).min(100) as u8
 }
