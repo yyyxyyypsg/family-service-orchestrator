@@ -398,3 +398,251 @@ release_decision=0.1.1 accepted as signed follow-up; 0.1.0 submission remains un
 ```
 
 此前 HANDOFF §7 的 `partially-verified` 状态已因 F-01 修复升级为 `verified`。JS 原型中的同名硬编码仍不属于规范 bundle 或已提交发布物，不影响本次发布包裁定。
+
+---
+
+## OUTER LOOP REVIEW · NATIVE HOST EXTENSION · 2026-10-02
+
+**裁定：`partially-verified`。** 原生 Rust/Makepad 轨道已实现并在独立窗口中验证；OctoSense Desktop
+宿主注册补丁已在本地分支生成、通过清单生成器、Cargo metadata 和完整宿主 `cargo check`。
+宿主内实际窗口启动与 Octos peer 端到端冒烟仍未完成，因此暂不把整条宿主集成链标为 `verified`。
+
+### 已完成
+
+- `native/` crate 提供 standalone binary 和 `AppModule`：
+  `family_orchestrator_native::FAMILY_ORCHESTRATOR_MODULE`。
+- 解析器、状态机和 AI service manifest 均为 Rust；`source_quote` 精确保留输入命中片段，
+  `order_id`、`delivery_date`、`installation_time` 缺失时进入 `missing`，不猜测。
+- 宿主服务工具：`current_state`、`parse_notice`、`confirm_plan`；破坏性确认仍经过宿主调用路径。
+- `cargo check --manifest-path native/Cargo.toml`：通过。
+- `cargo test --manifest-path native/Cargo.toml`：5/5 通过。
+- Windows Makepad 真实窗口远程冒烟：样例 → 解析 → `AwaitingConfirm` → 确认 → `Following`，
+  事实引用、确认禁用和审计摘要均可见；运行时无 `[E]`。
+- 本地 OctoSense Desktop 分支 `codex/family-orchestrator-native` 提交 `56edf1c`：
+  `native-apps.json`、shell feature、模块链接和 `agent.octos` 四项服务已注册。
+- `python tools/native_apps.py --check`：通过；`cargo metadata --no-deps`：确认
+  `family-orchestrator-native` 路径、desktop feature 和 process-apps 关系完整。
+- 在 `OctoSense-Desktop` 工作区运行
+  `cargo check -p octosense --features app-family-orchestrator`：通过（Windows，4 分 14 秒，
+  仅已有依赖警告）。这证明宿主 feature、模块链接和原生 crate 已能在同一工作区完成编译检查。
+- 使用 `MAKEPAD_HIDE_WINDOWS=1 MAKEPAD_REMOTE=8172 cargo run -p octosense
+  --features app-family-orchestrator` 启动宿主：通过；远程桥建立，启动日志明确列出
+  `family-orchestrator`，随后通过 `/quit` 正常退出。当前机器未配置 `OCTOS_APP_CORE_BIN`，
+  因此这次启动只验证宿主加载和模块链接，不宣称真实 Octos peer 已完成请求。
+
+### 边界与未决
+
+- 签名初赛 `bundle/`、`0.1.0`/`0.1.1` 和 issue #13 未改动；原生版本是并行宿主扩展轨道。
+- 原生 crate 的 Cargo 路径依赖假定官方工作区兄弟目录布局：`makepad/` 与
+  `apps/family-orchestrator/` 同属一个工作区；宿主集成也按此布局注册。
+- 目前已验证模块契约、服务总线入口和宿主工作区编译检查；仍需启动带该 feature 的 Desktop，
+  通过 Makepad Studio/远程桥完成宿主内窗口复验，并确认宿主 Octos peer 的真实请求链路。
+
+```text
+ACK(partially-verified): native host extension implemented.
+native_crate=verified(check,test,standalone remote smoke)
+host_registration=verified(native_apps.py --check,cargo metadata --no-deps)
+desktop_build=verified(cargo check -p octosense --features app-family-orchestrator)
+host_startup=verified(hidden-window,remote-bridge,modules-linked)
+host_ui_octos_peer_smoke=unverified
+signed_bundle=unchanged(0.1.1)
+next=run host UI smoke and Octos peer end-to-end check
+```
+
+---
+
+## ACK native 第一阶段复验 · 2026-10-02（内环独立复验）
+
+**验证级别：外环 6 项声明全部复核为真；最后一关「真实 Octos peer 端到端」实际是两道缺口（见下）。**
+
+| 外环声明 | 内环复核 | 证据 |
+| --- | --- | --- |
+| cargo test 5/5 | ✓ 本机重跑通过 | 且 5 个测试都是实质断言：F-01 同款精确引用断言（`delay_quote_is_the_exact_input_phrase`）、缺字段不猜测、模块契约稳定、manifest 三工具、agent 不绕过状态机 |
+| 注册到 OctoSense Desktop | ✓ | OctoSense-Desktop 本地检出 2 个提交：`crates/ai-host/src/native_agents.rs` 的 `NATIVE_AGENTS` 增加一行（四方法授权，与 Rinx 同款——正是内环此前指出的缺口）；`native-apps.json` 条目（`implies: ["octos-core"]`、sandbox network:none、`shells: desktop opt-in`）；`crates/shell/src/native_apps.rs` + desktop feature `app-family-orchestrator` |
+| Desktop cargo check + 宿主启动冒烟 | ✓（产物佐证） | `octosense.exe` 165MB（今日 16:25 构建），`octos-core` 编译指纹存在；冒烟记录如实声明"只验证宿主加载和模块链接" |
+| 0.1.x 不变 | ✓ | 分支隔离，main 与 v0.1.x 标签未动 |
+
+**架构确认**：模块走的是 ADR 0002 §4 的「应用提供类型化工具」模型——`ai.rs` 声明三个工具（`current_state`=Read、`parse_notice`=Act、`confirm_plan`=**Destructive** 走宿主审批），octos agent 调工具，应用不调 agent、不自带内核、不开裸 socket。比"app 调 octos.turn.start"的形态更贴官方安全模型。
+
+**最后一关实际是两道缺口：**
+
+1. **内核二进制 + 配置（已知）**：octos-core 是 git 依赖（octos-org/octos @ `ae230ce0`），但内核 PROGRAM 需单独构建（演示原话「构建 octos main 的 octos 二进制」）；内核 home 的 `config.json` 需要模型 provider + key（**人环提供**，key 不进聊天和仓库）；启动时 `OCTOS_APP_CORE_BIN=<octos.exe>`。
+2. **工具发现路径（已由源码审计解除）**：`native-apps.json` 的 `tools_json` 是进程式应用的静态目录；本模块属于宿主内进程模块，`ServiceManifest` 通过 `PaneLinks`/`AiBus` 动态注册到 peer。故当前条目的 `tools_json: "[]"` 不构成缺口，不应为了它重复声明工具。
+
+**建议下一片（T-native-2，约半天）**：
+1. clone octos @ ae230ce0，构建内核二进制
+2. 人环把模型 key 放进内核 config（位置由内环准备好）
+3. `OCTOS_APP_CORE_BIN=<octos.exe> MAKEPAD_HIDE_WINDOWS=1 MAKEPAD_REMOTE=8172 cargo run -p octosense --features app-family-orchestrator`，看内核是否起来、agent 是否看到工具
+4. 真实发一条「解析这条通知：…」，观察 parse_notice 工具调用落进模块（日志/审计）；若失败，优先排查内核二进制栈/配置，而不是修改 `tools_json`
+
+---
+
+## OUTER LOOP REVIEW · NATIVE HOST UI + PEER ATTEMPT · 2026-10-02
+
+**裁定：`partially-verified`。** 真实 OctoSense Desktop 已加载并渲染
+`family-orchestrator` 原生模块；本地业务流程在宿主窗口内完成了“样例 → 解析 →
+AwaitingConfirm → 确认 → Following”。但 Octos 子进程在首次建立 agent peer 时退出并报告
+`thread 'main' has overflowed its stack`，宿主随后重启内核；因此没有把模型回合或工具调用标为
+`verified`。
+
+### 独立复验证据
+
+- 修复宿主专用 Makepad 实例化：`FamilyViewBase` 类型别名 + `FamilyView` 的 `#[source]`
+  引用，使模块不再出现 `variable FamilyView not found in scope`。改动位于
+  `native/src/view.rs` 与 `native/src/module.rs`。
+- 重新运行 `cargo test --manifest-path native/Cargo.toml`：5/5 通过；
+  `cargo check --manifest-path native/Cargo.toml`：通过。
+- 重建 `OctoSense-Desktop` feature 并用 `OCTOS_APP_CORE_BIN` 指向真实
+  `octos.exe` 启动，远程桥 `8180`/`8181` 均可连接；窗口截图显示中文界面、事实面板、方案面板和
+  审计摘要均正常渲染。
+- `/snap` 数据复核：解析后状态为 `AwaitingConfirm · 方案已生成，请选择方案并确认执行`；
+  点击 `[566,483,449,42]` 的确认按钮后状态为
+  `Following · 已更新本地服务时间线并登记复查`。
+- 打开宿主 `Ask Family-orchestrator` 面板，确实出现首次 agent 授权页，列出
+  `octos.session.open/history`、`octos.turn.start/interrupt`；开发模式下进一步进入 assistant
+  面板，但显示 `No model provider is set up yet`，没有可执行的模型回合。
+- 宿主日志记录：`octos-core` 启动 `octos.exe serve --stdio` 后报告
+  `thread 'main' ... has overflowed its stack`，并被宿主重启；这是真实阻断证据，不是猜测。
+
+### 结论
+
+```text
+ACK(partially-verified): native host UI and local flow verified; Octos peer turn blocked.
+native_module_render=verified(host window, remote screenshot, no FamilyView scope error)
+local_flow=verified(AwaitingConfirm -> Following, host window)
+service_manifest_route=verified(static source audit: in-process PaneLinks/AiBus, tools_json not required)
+octos_peer_start=blocked(child octos.exe exits with main-thread stack overflow)
+model_turn=unverified(no provider configured; no tool call observed)
+signed_bundle=unchanged(0.1.1)
+next=fix/rebuild octos Windows stdio child with sufficient stack and configure a local provider, then rerun one parse_notice turn
+```
+
+本次没有读取、索取或修改任何模型 API key，也没有修改已签名的 0.1.1 发布包。
+
+---
+
+## OUTER LOOP FOLLOW-UP · OCTOS PROFILE + TOOL DIRECTORY · 2026-10-02
+
+**裁定：`partially-verified`（peer 启动与工具目录已验证；真实模型回合仍未验证）。**
+
+本次先修正了上一节中已经过时的阻断描述。Windows 子进程使用
+`RUSTFLAGS=-C link-arg=/STACK:8388608`、`--no-default-features --features api`
+构建的本地 `octos.exe` 后，宿主不再出现 `main has overflowed its stack`。为避免接触任何真实密钥，
+在本机 Octos home 写入了仅指向 `127.0.0.1` 的 `_main` 测试 profile：
+
+```text
+C:\Users\lsy\.octosense\octos-home\.octos\profiles\_main.json
+base_url=http://127.0.0.1:18080/v1
+model=fixture-model
+```
+
+### 独立复验证据
+
+- `octosense.exe` 以 `OCTOS_APP_CORE_BIN` 指向上述本地 `octos.exe` 启动，远程桥 `8185` 建立，
+  `family-orchestrator` 仍在宿主模块列表中。
+- Octos 服务日志出现：
+  `ProfileRuntime: bootstrapped profile_id=_main provider=local model=fixture-model tool_count=49`。
+- 宿主日志随后出现：
+  `octos-core: kernel 1: the system agent's tool list is set (version 1)`。
+- 系统 agent 的 peer 预热完成；日志对多个系统 peer 报告 `agent is prepared (its peer is listed for the system agent)`。
+- 同一次启动中没有 stack overflow，也没有 `profile_unresolved`；旧的 `_main` 未配置问题已消失。
+- `native` crate 的 `cargo test` 仍为 5/5，已签名 0.1.1 bundle 未改动。
+
+### 仍未宣称的部分
+
+- 本机没有任何 `OPENAI_API_KEY`、MiniMax/Kimi 或其他模型密钥；没有请求、读取或保存真实密钥。
+- `fixture-model` 的本地 HTTP 端点没有提供真实模型回合，因此尚未观察到
+  `parse_notice`/`current_state`/`confirm_plan` 的真实 Octos tool call。
+- 这次验证证明了“宿主 → Octos 子进程 → `_main` profile → system tool list”的链路，
+  不等同于已证明模型能正确选择并执行家庭服务工具。
+
+```text
+ACK(partially-verified): octos peer bootstrap and tool directory verified.
+stack_overflow=resolved(local Windows build, 8 MiB process stack)
+profile=_main verified(local keyless fixture profile)
+system_tool_list=verified(tool list set, version 1; server tool_count=49)
+family_tool_call=unverified(no model key / no real turn)
+signed_bundle=unchanged(0.1.1)
+next=configure a model provider locally, then replay one assistant turn and inspect parse_notice audit
+```
+
+---
+
+## OUTER LOOP REVIEW · NATIVE HOST PEER TOOL CALL · 2026-10-03
+
+**裁定：`verified`（本地 fixture provider；未使用真实模型密钥）。**
+
+本轮把上一节的未决项跑通了。OctoSense Desktop 以 `OCTOS_APP_CORE_BIN` 启动本地
+Windows `octos.exe`，内核使用 `127.0.0.1:18080` 的 OpenAI-compatible fixture profile。
+fixture 只按预设回合返回工具调用，不代表真实模型质量，也没有读取或保存任何 API key。
+
+### 独立证据
+
+- `cargo test --manifest-path apps/family-orchestrator/native/Cargo.toml`：5/5 通过；
+  五项均为实质断言（精确 `source_quote`、缺字段进入 `missing`、manifest 三工具、
+  状态机确认门）。
+- `PYTHONUTF8=1 python tools/native_apps.py --check`：通过；`native-apps.json` 与生成的
+  `crates/shell/src/native_apps.rs` 一致。Family 工具使用合法的
+  `family.orchestrator.*` 目录名，`confirm_plan` 保留 `confirm: app` 且不可自动批准。
+- `cargo build -p octosense --features app-family-orchestrator`：Windows 通过；宿主日志
+  记录模块链接、Octos 子进程启动、`family-orchestrator` peer link 打开，以及
+  `open_session` 返回 `Ok(... conversation=true ...)`。
+- fixture 请求记录显示系统 Agent 的 `peer_list` 找到动态 peer slug，随后
+  `peer_send_input` 成功送达家庭 peer。家庭 peer 的后续模型请求携带三个原生工具，
+  实际发出：
+
+  ```text
+  family_orchestrator_parse_notice
+  {"notice":"订单号：AC-1\n配送预计：9月28日\n安装预约：9月27日 15:00\n配送延迟"}
+  ```
+
+  宿主返回工具结果：
+
+  ```json
+  {"facts":4,"missing":0,"state":"AwaitingConfirm"}
+  ```
+
+  这证明了“Octos 子进程 → 系统 Agent peer_send_input → 家庭 peer → 原生模块工具
+  执行器 → 结果返回”的完整本地链路。
+
+### 代码收尾
+
+- 原生模块在 `PeerEvent::ToolCall` 中调用同一套 `ai::answer`，因此 peer 调用不能绕过
+  解析和确认状态机；工具结果已写入宿主日志，peer 事件后立即刷新界面。
+- 宿主生成器支持带连字符 app id 的规范化工具命名，并按最后一段匹配工具策略，保证
+  `family.orchestrator.confirm_plan` 仍命中 `confirm_plan` 的应用确认门。
+- 0.1.1 已签名 Hub bundle 未修改；本原生轨道继续作为独立宿主扩展。
+
+```text
+ACK(verified): native host peer tool call complete on local keyless fixture.
+native_tests=verified(5/5)
+host_registry=verified(native_apps.py --check, dotted tool schema, app confirmation policy)
+octos_bootstrap=verified(local octos.exe, _main fixture profile, peer session open)
+peer_routing=verified(peer_list -> peer_send_input -> family peer)
+family_tool_call=verified(family_orchestrator_parse_notice -> facts=4, missing=0, AwaitingConfirm)
+real_model_quality=unverified(no external model key; fixture is deterministic)
+signed_bundle=unchanged(0.1.1)
+next=optional real-provider smoke with a locally supplied key; keep key out of repo and chat
+```
+
+---
+
+## NATIVE DEMO VIDEO · 2026-10-03
+
+已录制原生宿主扩展专用演示视频：`build/video/demo-native-host-extension.mp4`。
+视频来自 OctoSense Desktop 原生模块的 Makepad 远程桥真实截图，包含模块加载、通知输入、
+事实解析、方案确认、Following 状态，以及 Octos peer 工具调用结果说明页。原有
+`build/video/demo-dev.aster.fso.mp4` 仍保留为脚本应用/card-host 版本演示，不与本视频混用。
+# OUTER LOOP REVIEW — 家庭服务事件编排器（Splash 移植）
+
+## 2026-10-03 · T-native-3 / capability expansion · verified
+
+第一、二层扩展落在未签名的原生 Rust/Makepad 宿主版本，保持已提交的 `bundle/` 0.1.1 不变：
+
+- 服务案件增加 `service_type`、家具/家政/维修准备清单、保修字段与售后复查信息。
+- 后续配送/安装通知通过 `merge_notice` 合并到同一案件，替换同字段事实并重新生成方案。
+- 增加用户验收和服务问题记录；`Following → PostSale` 有明确审计记录。
+- Octos 工具从 3 个扩展为 8 个：`merge_notice`、`create_checklist`、`set_recheck`、`mark_accepted`、`record_service_issue` 已同步到宿主静态工具目录；验收工具保留 app confirmation 门槛。
+- 证据：`cargo test` 7/7；`cargo check -p octosense --features app-family-orchestrator` 通过；`tools/native_apps.py --check` 通过；Makepad remote bridge 实测“解析 → 确认 → 完成验收”，状态到 `PostSale`、清单变为 done、审计 3 条。
+
+验证级别：`verified`（本地 Rust、宿主编译、工具目录和远程 UI 均验证；真实外部物流/日历/支付系统仍不在本版本范围）。

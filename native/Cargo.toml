@@ -1,0 +1,30 @@
+[package]
+name = "family-orchestrator-native"
+version = "0.1.0"
+edition = "2021"
+default-run = "family-orchestrator-native"
+
+[[bin]]
+name = "family-orchestrator-native"
+path = "src/main.rs"
+required-features = ["standalone"]
+
+[lib]
+name = "family_orchestrator_native"
+path = "src/lib.rs"
+
+[features]
+default = ["standalone"]
+standalone = ["dep:makepad-aichat", "dep:makepad-wm-api"]
+
+[dependencies]
+# Keep one Makepad source in a host build. OctoSense Desktop patches this
+# pinned git source to its reviewed `.sources/makepad` checkout; standalone
+# development resolves the same revision from the public repository.
+makepad-widgets = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9" }
+makepad-wm-theme = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9" }
+makepad-ai-services = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9" }
+makepad-strict-json = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9" }
+makepad-app-module = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9" }
+makepad-aichat = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9", default-features = false, features = ["engine"], optional = true }
+makepad-wm-api = { git = "https://github.com/OctoSense-org/makepad.git", rev = "e29a0eaa68781231eb9ec582e5f02648c6dad7e9", optional = true }
